@@ -1,0 +1,34 @@
+#include <windows.h>
+
+// Icono de la aplicación
+IDI_ICON1 ICON "assets/icons/stlrenderer.ico"
+
+// Información de versión
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS__WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "0C0A04B0" // Spanish (Spain)
+        BEGIN
+            VALUE "CompanyName", "STL Renderer"
+            VALUE "FileDescription", "STL to PNG Converter"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "STLRenderer"
+            VALUE "LegalCopyright", "Copyright (C) 2023"
+            VALUE "OriginalFilename", "STLRenderer.exe"
+            VALUE "ProductName", "STL Renderer"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0C0A, 1200
+    END
+END 
