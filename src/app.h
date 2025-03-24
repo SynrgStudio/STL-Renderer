@@ -99,9 +99,6 @@ private:
     // Ejecuta en modo GUI
     void runGuiMode();
     
-    // Archivo de log
-    std::ofstream logFile;
-    
     // Componentes de la aplicación
     std::unique_ptr<Renderer> m_renderer;
     std::unique_ptr<StlLoader> m_stlLoader;

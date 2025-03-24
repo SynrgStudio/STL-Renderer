@@ -26,9 +26,6 @@
 #include <vector>
 #include <fstream>
 
-// Referenciar el logFile desde app.cpp
-extern std::ofstream logFile;
-
 // Shaders
 const char* vertexShaderSource = R"(
     #version 330 core
@@ -127,11 +124,9 @@ bool Renderer::initialize(int width, int height, bool headless) {
     m_height = height;
     m_headless = headless;
     
-    logFile << "Renderer::initialize() - Iniciando con tamaño " << width << "x" << height << std::endl;
-    
     // Inicializar GLFW
     if (!glfwInit()) {
-        logFile << "Error al inicializar GLFW" << std::endl;
+        std::cerr << "Error al inicializar GLFW" << std::endl;
         return false;
     }
     
@@ -143,7 +138,7 @@ bool Renderer::initialize(int width, int height, bool headless) {
     // Crear ventana
     m_window = glfwCreateWindow(width, height, "STL Renderer", NULL, NULL);
     if (!m_window) {
-        logFile << "Error al crear ventana GLFW" << std::endl;
+        std::cerr << "Error al crear ventana GLFW" << std::endl;
         glfwTerminate();
         return false;
     }
@@ -156,7 +151,7 @@ bool Renderer::initialize(int width, int height, bool headless) {
     
     // Cargar funciones de OpenGL con GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        logFile << "Error al inicializar GLAD" << std::endl;
+        std::cerr << "Error al inicializar GLAD" << std::endl;
         glfwDestroyWindow(m_window);
         glfwTerminate();
         return false;
@@ -180,12 +175,10 @@ bool Renderer::initialize(int width, int height, bool headless) {
     // Configurar matriz de proyección
     float aspectRatio = (float)width / (float)height;
     m_projectionMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
-    logFile << "Matriz de proyección configurada, aspect ratio: " << aspectRatio << std::endl;
     
     // Matriz de vista inicial
     updateViewMatrix();
     
-    logFile << "Renderer inicializado correctamente" << std::endl;
     m_initialized = true;
     return true;
 }
@@ -313,7 +306,7 @@ void Renderer::centerCamera() {
                  << dimensions.x << ", " << dimensions.y << ", " << dimensions.z 
                  << "), Distancia: " << dist << std::endl;
         
-        logFile << "Cámara centrada. Target: (0,0,0), Dimensiones: " 
+        std::cout << "Cámara centrada. Target: (0,0,0), Dimensiones: " 
                 << dimensions.x << ", " << dimensions.y << ", " << dimensions.z
                 << ", Distancia: " << dist << std::endl;
         
@@ -408,41 +401,22 @@ void Renderer::renderModel() {
 }
 
 bool Renderer::renderToFile(const std::string& filename, bool transparentBackground) {
-    logFile << "=== INICIO RENDERTOFILE ===" << std::endl;
-    logFile << "Renderizando a archivo: " << filename << (transparentBackground ? " (con fondo transparente)" : " (con fondo sólido)") << std::endl;
-    
-    // Verificar estado del modelo
-    logFile << "Estado del modelo: hasModel=" << (m_hasModel ? "true" : "false") 
-            << ", triangles=" << (m_hasModel ? std::to_string(m_model.triangles.size()) : "N/A") 
-            << ", vao=" << m_vao 
-            << ", defaultCubeVAO=" << m_defaultCubeVAO << std::endl;
-    
-    // Información sobre la configuración actual de la cámara
-    logFile << "Cámara actual: posición=(" << m_cameraPos.x << ", " << m_cameraPos.y << ", " << m_cameraPos.z 
-            << "), target=(" << m_cameraTarget.x << ", " << m_cameraTarget.y << ", " << m_cameraTarget.z 
-            << "), yaw=" << m_cameraYaw << ", pitch=" << m_cameraPitch << ", distance=" << m_cameraDistance << std::endl;
-    
     // Verificar que el framebuffer esté configurado
     if (m_fbo == 0) {
-        logFile << "Error: Framebuffer no inicializado, intentando crear" << std::endl;
         setupFramebuffer();
         if (m_fbo == 0) {
-            logFile << "Error: No se pudo crear el framebuffer" << std::endl;
+            std::cerr << "Error: No se pudo crear el framebuffer" << std::endl;
             return false;
         }
     }
-    
-    // IMPORTANTE: No recalculamos la posición de la cámara ni nada
-    // Usamos exactamente lo que ya está configurado desde renderSingleFile
     
     // Realizar renderizado al framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     
     // Verificar estado del framebuffer
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        logFile << "ERROR: El framebuffer no está completo" << std::endl;
-    } else {
-        logFile << "Framebuffer completo y listo para renderizar" << std::endl;
+        std::cerr << "ERROR: El framebuffer no está completo" << std::endl;
+        return false;
     }
     
     // Establecer el viewport al tamaño del framebuffer
@@ -488,19 +462,17 @@ bool Renderer::renderToFile(const std::string& filename, bool transparentBackgro
     
     // Renderizar el modelo
     if (m_hasModel && !m_model.triangles.empty() && m_vao != 0) {
-        logFile << "Renderizando modelo cargado" << std::endl;
         glBindVertexArray(m_vao);
         glDrawArrays(GL_TRIANGLES, 0, m_model.triangles.size() * 3);
         glBindVertexArray(0);
     } else {
         // Renderizar el cubo por defecto si no hay modelo
         if (m_defaultCubeVAO != 0) {
-            logFile << "Renderizando cubo por defecto" << std::endl;
             glBindVertexArray(m_defaultCubeVAO);
             glDrawArrays(GL_TRIANGLES, 0, 36);
             glBindVertexArray(0);
         } else {
-            logFile << "ERROR: No hay cubo por defecto disponible" << std::endl;
+            std::cerr << "ERROR: No hay cubo por defecto disponible" << std::endl;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             return false;
         }
@@ -509,7 +481,7 @@ bool Renderer::renderToFile(const std::string& filename, bool transparentBackgro
     // Verificar errores de OpenGL
     int err = glGetError();
     if (err != 0) {
-        logFile << "ERROR OpenGL: " << err << std::endl;
+        std::cerr << "ERROR OpenGL: " << err << std::endl;
     }
     
     // Asegurarse de que todo se haya dibujado
@@ -522,66 +494,28 @@ bool Renderer::renderToFile(const std::string& filename, bool transparentBackgro
     // Restaurar framebuffer por defecto
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
-    logFile << "=== FIN RENDERTOFILE ===" << std::endl;
     return success;
 }
 
 void Renderer::setModel(const Model& model) {
-    logFile << "=== INICIO SETMODEL ===" << std::endl;
     m_model = model;
     m_hasModel = true;
     
-    // Información básica del modelo
-    logFile << "Modelo cargado: " << model.triangles.size() << " triángulos" << std::endl;
-    logFile << "Centro: (" << model.center.x << ", " << model.center.y << ", " << model.center.z << ")" << std::endl;
-    logFile << "Escala: " << model.scale << std::endl;
-    logFile << "Límites - Min: (" << model.minBounds.x << ", " << model.minBounds.y << ", " << model.minBounds.z << ")" << std::endl;
-    logFile << "Límites - Max: (" << model.maxBounds.x << ", " << model.maxBounds.y << ", " << model.maxBounds.z << ")" << std::endl;
-    
     // Verificar que el modelo tenga triángulos
     if (model.triangles.empty()) {
-        logFile << "ERROR: Intentando cargar un modelo sin triángulos" << std::endl;
+        std::cerr << "ERROR: Intentando cargar un modelo sin triángulos" << std::endl;
         m_hasModel = false;
-        logFile << "=== FIN SETMODEL (ERROR) ===" << std::endl;
         return;
-    }
-    
-    // Mostrar algunos triángulos de ejemplo para diagnóstico
-    logFile << "Muestreo de triángulos:" << std::endl;
-    int sampleCount = std::min(3, static_cast<int>(model.triangles.size()));
-    for (int i = 0; i < sampleCount; i++) {
-        const auto& tri = model.triangles[i];
-        logFile << "  Triángulo " << i << ":" << std::endl;
-        for (int v = 0; v < 3; v++) {
-            logFile << "    Vértice " << v << ": Pos=(" 
-                    << tri.vertices[v].position.x << ", " 
-                    << tri.vertices[v].position.y << ", " 
-                    << tri.vertices[v].position.z << "), Norm=(" 
-                    << tri.vertices[v].normal.x << ", " 
-                    << tri.vertices[v].normal.y << ", " 
-                    << tri.vertices[v].normal.z << ")" << std::endl;
-        }
     }
     
     // Actualizar VBO con los datos del modelo
     std::vector<float> vertexData;
     vertexData.reserve(model.triangles.size() * 3 * 6); // 3 vértices por triángulo, 6 floats por vértice (3 pos + 3 normal)
     
-    logFile << "Preparando datos normalizados con centro: (" << model.center.x << ", " << model.center.y << ", " << model.center.z 
-            << "), escala: " << model.scale << std::endl;
-    
     for (const auto& triangle : model.triangles) {
         for (int i = 0; i < 3; ++i) {
             // Normalizar la posición del vértice aplicando centrado y escalado
             glm::vec3 normalizedPos = (triangle.vertices[i].position - model.center) * model.scale;
-            
-            // Imprimir ejemplo de vértices para diagnóstico (solo algunos vértices)
-            if (&triangle == &model.triangles[0] && i == 0) {
-                logFile << "Primer vértice - Original: (" << triangle.vertices[i].position.x << ", " 
-                        << triangle.vertices[i].position.y << ", " << triangle.vertices[i].position.z << ")" << std::endl;
-                logFile << "Primer vértice - Normalizado: (" << normalizedPos.x << ", " 
-                        << normalizedPos.y << ", " << normalizedPos.z << ")" << std::endl;
-            }
             
             // Agregar posición normalizada
             vertexData.push_back(normalizedPos.x);
@@ -595,50 +529,26 @@ void Renderer::setModel(const Model& model) {
         }
     }
     
-    // Verificar que tenemos datos de vértices
-    if (vertexData.empty()) {
-        logFile << "ERROR: No se generaron datos de vértices" << std::endl;
-        m_hasModel = false;
-        logFile << "=== FIN SETMODEL (ERROR) ===" << std::endl;
-        return;
-    }
-    
-    logFile << "Generados " << vertexData.size() / 6 << " vértices para renderizado" << std::endl;
-    
-    // Configuración del VAO y VBO para el modelo
-    glBindVertexArray(m_vao);
-    logFile << "VAO activado: " << m_vao << std::endl;
-    
     // Bind el VBO
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     
     // Cargar datos
-    logFile << "Cargando " << vertexData.size() * sizeof(float) << " bytes en el VBO" << std::endl;
     glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
     
     // Verificar si hubo error
     int err = glGetError();
     if (err != 0) {
-        logFile << "ERROR de OpenGL al cargar datos en el VBO: " << err << std::endl;
+        std::cerr << "ERROR de OpenGL al cargar datos en el VBO: " << err << std::endl;
     }
     
     // Restaurar VAO
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    
-    logFile << "Modelo cargado con éxito en la GPU" << std::endl;
-    logFile << "=== FIN SETMODEL ===" << std::endl;
 }
 
 void Renderer::createShaders() {
     // Utilizar la nueva clase Shader para crear los shaders
     m_shader = std::make_unique<Shader>(vertexShaderSource, fragmentShaderSource);
-    
-    if (m_shader) {
-        logFile << "Shaders creados correctamente" << std::endl;
-    } else {
-        logFile << "Error al crear los shaders" << std::endl;
-    }
 }
 
 void Renderer::setupBuffers() {
@@ -742,10 +652,6 @@ void Renderer::updateViewMatrix() {
 }
 
 bool Renderer::saveImage(const std::string& filename, bool transparentBackground) {
-    logFile << "=== INICIO SAVEIMAGE ===" << std::endl;
-    logFile << "Guardando imagen " << m_width << "x" << m_height << " con formato " 
-            << (transparentBackground ? "RGBA" : "RGB") << " en: " << filename << std::endl;
-    
     // Leer píxeles del framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     
@@ -757,12 +663,10 @@ bool Renderer::saveImage(const std::string& filename, bool transparentBackground
     std::vector<unsigned char> buffer(m_width * m_height * numChannels);
     
     if (buffer.size() == 0 || buffer.data() == nullptr) {
-        logFile << "ERROR: No se pudo asignar memoria para el buffer de imagen (" 
+        std::cerr << "ERROR: No se pudo asignar memoria para el buffer de imagen (" 
                 << (m_width * m_height * numChannels) << " bytes)" << std::endl;
         return false;
     }
-    
-    logFile << "Buffer asignado: " << buffer.size() << " bytes" << std::endl;
     
     // Leer píxeles
     glReadPixels(0, 0, m_width, m_height, format, GL_UNSIGNED_BYTE, buffer.data());
@@ -770,12 +674,10 @@ bool Renderer::saveImage(const std::string& filename, bool transparentBackground
     // Verificar si hubo error en glReadPixels
     int err = glGetError();
     if (err != 0) {
-        logFile << "ERROR en glReadPixels: " << err << std::endl;
+        std::cerr << "ERROR en glReadPixels: " << err << std::endl;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return false;
     }
-    
-    logFile << "Lectura de píxeles completada, volteando imagen..." << std::endl;
     
     // Voltear imagen (OpenGL y stb_image tienen coordenadas y invertidas)
     for (int y = 0; y < m_height / 2; ++y) {
@@ -820,19 +722,19 @@ bool Renderer::saveImage(const std::string& filename, bool transparentBackground
     float blackPercent = (totalPixels > 0) ? (100.0f * blackPixels / totalPixels) : 0;
     float whitePercent = (totalPixels > 0) ? (100.0f * whitePixels / totalPixels) : 0;
     
-    logFile << "DIAGNÓSTICO - Análisis de imagen: " << std::endl;
-    logFile << "  Total píxeles muestreados: " << totalPixels << std::endl;
-    logFile << "  Píxeles negros: " << blackPixels << " (" << blackPercent << "%)" << std::endl; 
-    logFile << "  Píxeles blancos: " << whitePixels << " (" << whitePercent << "%)" << std::endl;
+    std::cout << "DIAGNÓSTICO - Análisis de imagen: " << std::endl;
+    std::cout << "  Total píxeles muestreados: " << totalPixels << std::endl;
+    std::cout << "  Píxeles negros: " << blackPixels << " (" << blackPercent << "%)" << std::endl; 
+    std::cout << "  Píxeles blancos: " << whitePixels << " (" << whitePercent << "%)" << std::endl;
     
     if (allBlack || blackPercent > 95.0f) {
-        logFile << "ADVERTENCIA: La imagen es casi completamente negra! Posible problema de renderizado." << std::endl;
+        std::cout << "ADVERTENCIA: La imagen es casi completamente negra! Posible problema de renderizado." << std::endl;
     } else if (allWhite || whitePercent > 95.0f) {
-        logFile << "ADVERTENCIA: La imagen es casi completamente blanca! Posible problema de iluminación." << std::endl;
+        std::cout << "ADVERTENCIA: La imagen es casi completamente blanca! Posible problema de iluminación." << std::endl;
     }
     
     // Guardar imagen a archivo
-    logFile << "Guardando imagen usando stbi_write_png..." << std::endl;
+    std::cout << "Guardando imagen usando stbi_write_png..." << std::endl;
     int result = stbi_write_png(filename.c_str(), m_width, m_height, numChannels,
                                buffer.data(), m_width * numChannels);
     
@@ -840,12 +742,11 @@ bool Renderer::saveImage(const std::string& filename, bool transparentBackground
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
     if (result == 0) {
-        logFile << "ERROR: stbi_write_png falló al guardar la imagen" << std::endl;
+        std::cerr << "ERROR: stbi_write_png falló al guardar la imagen" << std::endl;
     } else {
-        logFile << "stbi_write_png completado correctamente, imagen guardada en: " << filename << std::endl;
+        std::cout << "stbi_write_png completado correctamente, imagen guardada en: " << filename << std::endl;
     }
     
-    logFile << "=== FIN SAVEIMAGE ===" << std::endl;
     return result != 0;
 }
 
@@ -923,7 +824,6 @@ void Renderer::createDefaultCube() {
     glBindVertexArray(0);
 
     std::cout << "Cubo predeterminado creado para vista previa" << std::endl;
-    logFile << "Cubo predeterminado creado para vista previa" << std::endl;
 }
 
 void Renderer::setProjectionMatrix(float fov, float aspectRatio, float nearPlane, float farPlane) {

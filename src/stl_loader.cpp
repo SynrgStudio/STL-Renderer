@@ -8,35 +8,28 @@
 #include <cstring>
 #include <limits>
 
-// Referencia al archivo de log
-extern std::ofstream logFile;
-
 StlLoader::StlLoader() {
     // Inicializar modelo vacío
     m_model.minBounds = glm::vec3(std::numeric_limits<float>::max());
     m_model.maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
     m_model.center = glm::vec3(0.0f);
     m_model.scale = 1.0f;
-    
-    logFile << "StlLoader construido\n";
 }
 
 StlLoader::~StlLoader() {
     // Limpiar recursos si es necesario
-    logFile << "StlLoader destruido\n";
+    std::cout << "StlLoader destruido\n";
 }
 
 bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
     // Limpiar modelo anterior
     m_model.triangles.clear();
     
-    logFile << "StlLoader::loadModel() - Cargando: " << filename << "\n";
     std::cout << "Intentando cargar modelo: " << filename << std::endl;
     
     // Intentar abrir el archivo en modo binario
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
-        logFile << "Error: No se pudo abrir el archivo: " << filename << "\n";
         std::cerr << "No se pudo abrir el archivo: " << filename << std::endl;
         return false;
     }
@@ -46,11 +39,9 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
     std::streamsize fileSize = file.tellg();
     file.seekg(0, std::ios::beg);
     
-    logFile << "Tamaño del archivo: " << fileSize << " bytes\n";
     std::cout << "Tamaño del archivo: " << fileSize << " bytes" << std::endl;
     
     if (fileSize < 84) { // 80 bytes header + 4 bytes triangleCount
-        logFile << "Error: Archivo STL inválido: demasiado pequeño\n";
         std::cerr << "Archivo STL inválido: demasiado pequeño" << std::endl;
         file.close();
         return false;
@@ -66,11 +57,9 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
     
     // Comprobar si es ASCII (comienza con "solid")
     if (std::strncmp(header, "solid", 5) == 0) {
-        logFile << "Detectado formato ASCII\n";
         std::cout << "Detectado formato ASCII" << std::endl;
         success = loadAsciiSTL(filename);
     } else {
-        logFile << "Detectado formato binario\n";
         std::cout << "Detectado formato binario" << std::endl;
         success = loadBinarySTL(filename);
     }
@@ -80,7 +69,7 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
         calculateModelInfo();
         
         // NUEVO: Trasladar todos los vértices para que el centro del bounding box esté en (0,0,0)
-        logFile << "Trasladando modelo al origen (0,0,0)..." << std::endl;
+        std::cout << "Trasladando modelo al origen (0,0,0)..." << std::endl;
         glm::vec3 translationVector = -m_model.center; // Negativo del centro para moverlo a (0,0,0)
         
         // Aplicar traslación a todos los vértices
@@ -91,7 +80,7 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
         }
         
         // NUEVO: Rotar el modelo para que Z sea el eje vertical (como en miniaturas de D&D)
-        logFile << "Rotando modelo para correcta orientación Z-up..." << std::endl;
+        std::cout << "Rotando modelo para correcta orientación Z-up..." << std::endl;
 
         // Aplicar rotación a todos los vértices para una correcta orientación de miniaturas
         for (auto& triangle : m_model.triangles) {
@@ -130,17 +119,11 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
         m_model.center = glm::vec3(0.0f, 0.0f, 0.0f); // El centro sigue en el origen
         
         // Registrar la traslación en el log
-        logFile << "Modelo trasladado al origen y rotado. Nuevos límites - Min: (" 
+        std::cout << "Modelo trasladado al origen y rotado. Nuevos límites - Min: (" 
                 << m_model.minBounds.x << ", " << m_model.minBounds.y << ", " << m_model.minBounds.z 
                 << "), Max: (" << m_model.maxBounds.x << ", " << m_model.maxBounds.y << ", " << m_model.maxBounds.z << ")\n";
         
         // Informar sobre el modelo cargado
-        logFile << "Modelo cargado exitosamente. Triángulos: " << m_model.triangles.size() << "\n";
-        logFile << "Dimensiones: Min(" << m_model.minBounds.x << ", " << m_model.minBounds.y << ", " << m_model.minBounds.z 
-                << "), Max(" << m_model.maxBounds.x << ", " << m_model.maxBounds.y << ", " << m_model.maxBounds.z << ")\n";
-        logFile << "Centro: (" << m_model.center.x << ", " << m_model.center.y << ", " << m_model.center.z 
-                << "), Escala: " << m_model.scale << "\n";
-                
         std::cout << "Modelo cargado exitosamente. Triángulos: " << m_model.triangles.size() << std::endl;
         std::cout << "Dimensiones: Min(" << m_model.minBounds.x << ", " << m_model.minBounds.y << ", " << m_model.minBounds.z 
                   << "), Max(" << m_model.maxBounds.x << ", " << m_model.maxBounds.y << ", " << m_model.maxBounds.z << ")" << std::endl;
@@ -149,7 +132,6 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
         
         // Verificar que tenemos al menos un triángulo
         if (m_model.triangles.empty()) {
-            logFile << "Advertencia: El modelo no contiene triángulos\n";
             std::cerr << "Advertencia: El modelo no contiene triángulos" << std::endl;
             return false;
         }
@@ -157,33 +139,21 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
         // Verificar algunos vértices como muestra
         if (!m_model.triangles.empty()) {
             const auto& firstTri = m_model.triangles.front();
-            logFile << "Primer triángulo - Vértice 1: (" 
+            std::cout << "Primer triángulo - Vértice 1: (" 
                     << firstTri.vertices[0].position.x << ", " 
                     << firstTri.vertices[0].position.y << ", " 
                     << firstTri.vertices[0].position.z << ")\n";
             
             // También verificar la normal
-            logFile << "Primer triángulo - Normal: (" 
-                    << firstTri.vertices[0].normal.x << ", " 
-                    << firstTri.vertices[0].normal.y << ", " 
-                    << firstTri.vertices[0].normal.z << ")\n";
-                    
-            std::cout << "Primer triángulo - Vértice 1: (" 
-                    << firstTri.vertices[0].position.x << ", " 
-                    << firstTri.vertices[0].position.y << ", " 
-                    << firstTri.vertices[0].position.z << ")" << std::endl;
-            
-            // También verificar la normal
             std::cout << "Primer triángulo - Normal: (" 
                     << firstTri.vertices[0].normal.x << ", " 
                     << firstTri.vertices[0].normal.y << ", " 
-                    << firstTri.vertices[0].normal.z << ")" << std::endl;
+                    << firstTri.vertices[0].normal.z << ")\n";
         }
         
         // Enviar modelo al renderer
         renderer.setModel(m_model);
     } else {
-        logFile << "Error al cargar el modelo\n";
         std::cerr << "Error al cargar el modelo" << std::endl;
     }
     
@@ -193,7 +163,7 @@ bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
 bool StlLoader::loadBinarySTL(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
-        logFile << "Error: No se pudo abrir el archivo binario: " << filename << "\n";
+        std::cerr << "Error: No se pudo abrir el archivo binario: " << filename << "\n";
         return false;
     }
     
@@ -204,7 +174,7 @@ bool StlLoader::loadBinarySTL(const std::string& filename) {
     uint32_t numTriangles;
     file.read(reinterpret_cast<char*>(&numTriangles), sizeof(uint32_t));
     
-    logFile << "Número de triángulos en archivo binario: " << numTriangles << "\n";
+    std::cout << "Número de triángulos en archivo binario: " << numTriangles << "\n";
     
     // Reservar espacio para todos los triángulos
     m_model.triangles.reserve(numTriangles);
@@ -234,14 +204,14 @@ bool StlLoader::loadBinarySTL(const std::string& filename) {
     }
     
     file.close();
-    logFile << "Carga binaria completada. Triángulos leídos: " << m_model.triangles.size() << "\n";
+    std::cout << "Carga binaria completada. Triángulos leídos: " << m_model.triangles.size() << "\n";
     return !m_model.triangles.empty();
 }
 
 bool StlLoader::loadAsciiSTL(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
-        logFile << "Error: No se pudo abrir el archivo ASCII: " << filename << "\n";
+        std::cerr << "Error: No se pudo abrir el archivo ASCII: " << filename << "\n";
         return false;
     }
     
@@ -250,7 +220,7 @@ bool StlLoader::loadAsciiSTL(const std::string& filename) {
     int vertexIndex = 0;
     Triangle currentTriangle;
     
-    logFile << "Iniciando lectura de archivo ASCII STL\n";
+    std::cout << "Iniciando lectura de archivo ASCII STL\n";
     
     // Leer línea por línea
     while (std::getline(file, line)) {
@@ -281,13 +251,13 @@ bool StlLoader::loadAsciiSTL(const std::string& filename) {
     }
     
     file.close();
-    logFile << "Carga ASCII completada. Triángulos leídos: " << m_model.triangles.size() << "\n";
+    std::cout << "Carga ASCII completada. Triángulos leídos: " << m_model.triangles.size() << "\n";
     return !m_model.triangles.empty();
 }
 
 void StlLoader::calculateModelInfo() {
     if (m_model.triangles.empty()) {
-        logFile << "Error: No hay triángulos para calcular información del modelo\n";
+        std::cerr << "Error: No hay triángulos para calcular información del modelo\n";
         return;
     }
     
@@ -311,8 +281,7 @@ void StlLoader::calculateModelInfo() {
     
     // Calcular dimensiones
     glm::vec3 dimensions = m_model.maxBounds - m_model.minBounds;
-    logFile << "Dimensiones del modelo: (" << dimensions.x << ", " << dimensions.y << ", " << dimensions.z << ")\n";
-    std::cout << "Dimensiones del modelo: (" << dimensions.x << ", " << dimensions.y << ", " << dimensions.z << ")" << std::endl;
+    std::cout << "Dimensiones del modelo: (" << dimensions.x << ", " << dimensions.y << ", " << dimensions.z << ")\n";
     
     // Calcular escala del modelo para normalizar su tamaño
     float maxDimension = std::max(std::max(dimensions.x, dimensions.y), dimensions.z);
@@ -325,9 +294,6 @@ void StlLoader::calculateModelInfo() {
         m_model.scale = 1.0f;
     }
     
-    logFile << "Centro del modelo: (" << m_model.center.x << ", " << m_model.center.y << ", " << m_model.center.z << ")\n";
-    logFile << "Factor de escala: " << m_model.scale << "\n";
-    
-    std::cout << "Centro del modelo: (" << m_model.center.x << ", " << m_model.center.y << ", " << m_model.center.z << ")" << std::endl;
-    std::cout << "Factor de escala: " << m_model.scale << std::endl;
+    std::cout << "Centro del modelo: (" << m_model.center.x << ", " << m_model.center.y << ", " << m_model.center.z << ")\n";
+    std::cout << "Factor de escala: " << m_model.scale << "\n";
 } 

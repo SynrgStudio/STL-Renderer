@@ -1,3 +1,13 @@
+# Why STL Renderer?
+
+One thing I've been using A LOT is stltopng from `Papa's Best` but the project didn't see any update past 2021 and to be honest... it was SUPER NECESARY to make an update haaha, so I've made a new app:
+
+`GUI to set the camera angle and zoom`
+`Directory rendering (Render all STL files from a specific directory)`
+`Single and Multi Drag-n-drop behaviour in the same exe`
+
+The idea is that you can drag-n-drop a single stl or multiple stl and it'll create the corresponding PNG renders at ULTRA FRECKING MEGA FAST SPEED with all your settings.... with `transparent background too :D`
+
 # STL Renderer
 
 STL Renderer is a high-performance application for converting STL files to PNG images. It is designed to be extremely fast and allow both individual and batch processing.
@@ -116,4 +126,4 @@ If you have any questions or suggestions, feel free to open an issue in this rep
 
 ---
 
-Developed with ❤️ by your team 
+Developed with ❤️ by Damian from SynrgStudio and Claude ❤️ (Yeah, I'm not a good dev, and Claude helped me a lot on this one, get over it XD)

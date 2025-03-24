@@ -108,7 +108,4 @@ private:
     void setupFramebuffer();
     void destroyGLResources();
     void createDefaultCube();
-};
-
-// Extern para logFile
-extern std::ofstream logFile; 
+}; 

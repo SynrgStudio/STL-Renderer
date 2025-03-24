@@ -10,6 +10,8 @@
 // Después de Windows, incluir el resto
 #include "gui.h"
 #include "app.h"
+#include "renderer.h"
+#include "stl_loader.h"
 
 // Luego OpenGL y otras bibliotecas
 #include <glad/glad.h>
@@ -26,11 +28,17 @@
 
 // Y finalmente las otras dependencias
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <filesystem>
 #include <functional>
 #include <vector>
 #include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
+#include <chrono>
+#include <shellapi.h>
 
 namespace fs = std::filesystem;
 
@@ -42,9 +50,6 @@ namespace fs = std::filesystem;
 #ifndef ImGuiConfigFlags_DockingEnable
 #define ImGuiConfigFlags_DockingEnable 0
 #endif
-
-// Incluir referencia a logFile
-extern std::ofstream logFile;
 
 // Prototipos de funciones GLFW
 #if defined(_WIN32)
@@ -90,7 +95,7 @@ Gui::Gui(App& app)
     m_modelColor[1] = 0.7f;
     m_modelColor[2] = 0.7f;
     
-    logFile << "Gui construida con versión original\n";
+    std::cout << "Gui construida con versión original\n";
 }
 
 Gui::Gui(Renderer& renderer, StlLoader& stlLoader)
@@ -124,7 +129,7 @@ Gui::Gui(Renderer& renderer, StlLoader& stlLoader)
     m_modelColor[1] = 0.7f;
     m_modelColor[2] = 0.7f;
     
-    logFile << "Gui construida con versión alternativa\n";
+    std::cout << "Gui construida con versión alternativa\n";
 }
 
 Gui::~Gui() {
@@ -139,11 +144,11 @@ bool Gui::initialize() {
     m_window = glfwGetCurrentContext();
     if (!m_window) {
         std::cerr << "Error: No hay contexto GLFW activo" << std::endl;
-        logFile << "Gui::initialize() - Error: No hay contexto GLFW activo\n";
+        std::cout << "Gui::initialize() - Error: No hay contexto GLFW activo\n";
         return false;
     }
     
-    logFile << "Gui::initialize() - Iniciando interfaz gráfica\n";
+    std::cout << "Gui::initialize() - Iniciando interfaz gráfica\n";
     
     // Configurar datos para callbacks
     g_CallbackData.app = &m_app;
@@ -177,7 +182,7 @@ bool Gui::initialize() {
     // Cargar configuración actual
     updateFromConfig();
     
-    logFile << "Gui::initialize() - Interfaz gráfica inicializada correctamente\n";
+    std::cout << "Gui::initialize() - Interfaz gráfica inicializada correctamente\n";
     return true;
 }
 
@@ -307,7 +312,7 @@ void Gui::render() {
             renderer.renderModel();
         }
         catch (...) {
-            logFile << "Error al renderizar modelo desde GUI\n";
+            std::cout << "Error al renderizar modelo desde GUI\n";
         }
         
         // Restaurar el viewport original
@@ -462,7 +467,7 @@ void Gui::renderCameraControls() {
                 // Aplicar al renderer
                 m_app.getRenderer().setCameraOrbit(m_cameraYaw, m_cameraPitch, m_cameraDistance);
             } catch (...) {
-                logFile << "Error al aplicar cambios de cámara desde slider\n";
+                std::cout << "Error al aplicar cambios de cámara desde slider\n";
             }
         }
     }
@@ -548,7 +553,7 @@ void Gui::renderColorControls() {
             // Actualizar configuración
             m_app.getConfig().transparentBackground = transparentBg;
             
-            logFile << "Opción de fondo transparente cambiada a: " << (transparentBg ? "Activado" : "Desactivado") << std::endl;
+            std::cout << "Opción de fondo transparente cambiada a: " << (transparentBg ? "Activado" : "Desactivado") << std::endl;
         }
         
         if (ImGui::IsItemHovered()) {
@@ -655,7 +660,7 @@ void Gui::renderPreviewWindow() {
                 m_app.getRenderer().setCameraOrbit(m_cameraYaw, m_cameraPitch, m_cameraDistance);
             }
             catch (...) {
-                logFile << "Error al actualizar cámara desde mouse\n";
+                std::cout << "Error al actualizar cámara desde mouse\n";
             }
         }
     } else {
@@ -676,7 +681,7 @@ void Gui::renderPreviewWindow() {
             m_app.getRenderer().setCameraOrbit(m_cameraYaw, m_cameraPitch, m_cameraDistance);
         }
         catch (...) {
-            logFile << "Error al actualizar zoom de cámara\n";
+            std::cout << "Error al actualizar zoom de cámara\n";
         }
     }
     
@@ -728,12 +733,12 @@ void Gui::updateFromConfig() {
             // Batch processing
             m_batchDirectory = config.batchDirectory;
         } catch (...) {
-            logFile << "Error al intentar acceder a la configuración a través de App\n";
+            std::cout << "Error al intentar acceder a la configuración a través de App\n";
         }
     } else {
         // Versión alternativa con renderer y stlLoader directos
         // Aquí no tenemos acceso a la configuración, así que usamos valores por defecto
-        logFile << "Usando la versión alternativa sin acceso a AppConfig\n";
+        std::cout << "Usando la versión alternativa sin acceso a AppConfig\n";
         
         // Valores por defecto ya establecidos en el constructor
     }
@@ -758,12 +763,12 @@ void Gui::applyToConfig() {
             // Batch processing
             config.batchDirectory = m_batchDirectory;
         } catch (...) {
-            logFile << "Error al intentar actualizar la configuración a través de App\n";
+            std::cout << "Error al intentar actualizar la configuración a través de App\n";
         }
     } else {
         // Versión alternativa con renderer y stlLoader directos
         // Aplicar directamente al renderer los valores que podemos
-        logFile << "Aplicando configuración directamente al renderer\n";
+        std::cout << "Aplicando configuración directamente al renderer\n";
         
         if (m_renderer) {
             m_renderer->setBackgroundColor(Color(m_bgColor[0], m_bgColor[1], m_bgColor[2]));
@@ -774,13 +779,13 @@ void Gui::applyToConfig() {
 }
 
 void Gui::dropCallback(GLFWwindow* window, int count, const char** paths) {
-    logFile << "========== INICIO PROCESAMIENTO ARRASTRE ==========" << std::endl;
-    logFile << "Archivos arrastrados: " << count << std::endl;
+    std::cout << "========== INICIO PROCESAMIENTO ARRASTRE ==========" << std::endl;
+    std::cout << "Archivos arrastrados: " << count << std::endl;
     std::cout << "========== PROCESANDO " << count << " ARCHIVOS ARRASTRADOS ==========" << std::endl;
     
     // Procesar solo si tenemos acceso a la aplicación y hay archivos
     if (count <= 0 || !g_CallbackData.app || !g_CallbackData.gui) {
-        logFile << "No hay archivos para procesar o faltan referencias necesarias" << std::endl;
+        std::cout << "No hay archivos para procesar o faltan referencias necesarias" << std::endl;
         return;
     }
     
@@ -789,13 +794,13 @@ void Gui::dropCallback(GLFWwindow* window, int count, const char** paths) {
         std::string path = paths[i];
         fs::path filePath(path);
         
-        logFile << "---------- ARCHIVO " << (i+1) << "/" << count << " ----------" << std::endl;
-        logFile << "Ruta: " << path << std::endl;
+        std::cout << "---------- ARCHIVO " << (i+1) << "/" << count << " ----------" << std::endl;
+        std::cout << "Ruta: " << path << std::endl;
         std::cout << "Procesando archivo " << (i+1) << "/" << count << ": " << filePath.filename().string() << std::endl;
         
         // Verificar si es un archivo STL
         if (filePath.extension() != ".stl") {
-            logFile << "ERROR: No es un archivo STL válido" << std::endl;
+            std::cout << "ERROR: No es un archivo STL válido" << std::endl;
             std::cerr << "✗ Archivo no soportado: " << filePath.filename().string() << ". Solo se aceptan archivos .stl" << std::endl;
             continue; // Saltar al siguiente archivo
         }
@@ -810,21 +815,21 @@ void Gui::dropCallback(GLFWwindow* window, int count, const char** paths) {
         g_CallbackData.gui->m_currentFile = path;
         g_CallbackData.gui->m_saveFile = outputFile;
         
-        logFile << "Archivo STL: " << filePath.filename().string() << std::endl;
-        logFile << "Imagen salida: " << outputPath.filename().string() << std::endl;
+        std::cout << "Archivo STL: " << filePath.filename().string() << std::endl;
+        std::cout << "Imagen salida: " << outputPath.filename().string() << std::endl;
         
         // Paso 1: Cargar el modelo actual
-        logFile << "Cargando modelo..." << std::endl;
+        std::cout << "Cargando modelo..." << std::endl;
         if (!g_CallbackData.app->loadModel(path)) {
-            logFile << "ERROR: No se pudo cargar el modelo" << std::endl;
+            std::cout << "ERROR: No se pudo cargar el modelo" << std::endl;
             std::cerr << "✗ Error al cargar el modelo: " << filePath.filename().string() << std::endl;
             continue; // Saltar al siguiente archivo
         }
         
-        logFile << "Modelo cargado exitosamente" << std::endl;
+        std::cout << "Modelo cargado exitosamente" << std::endl;
         
         // Paso 2: Centrar la cámara para este modelo específico
-        logFile << "Centrando cámara..." << std::endl;
+        std::cout << "Centrando cámara..." << std::endl;
         g_CallbackData.app->getRenderer().centerCamera();
         
         // Paso 3: Aplicar configuración de cámara
@@ -832,27 +837,27 @@ void Gui::dropCallback(GLFWwindow* window, int count, const char** paths) {
         float pitch = g_CallbackData.app->getConfig().cameraPitch;
         float distance = g_CallbackData.app->getConfig().cameraDistance;
         
-        logFile << "Aplicando configuración de cámara: yaw=" << yaw << ", pitch=" << pitch << ", distance=" << distance << std::endl;
+        std::cout << "Aplicando configuración de cámara: yaw=" << yaw << ", pitch=" << pitch << ", distance=" << distance << std::endl;
         g_CallbackData.app->getRenderer().setCameraOrbit(yaw, pitch, distance);
         
         // Paso 4: Guardar la imagen
-        logFile << "Renderizando a archivo: " << outputFile << std::endl;
+        std::cout << "Renderizando a archivo: " << outputFile << std::endl;
         if (!g_CallbackData.app->saveImage(outputFile)) {
-            logFile << "ERROR: No se pudo guardar la imagen" << std::endl;
+            std::cout << "ERROR: No se pudo guardar la imagen" << std::endl;
             std::cerr << "✗ Error al guardar la imagen: " << outputPath.filename().string() << std::endl;
             continue; // Saltar al siguiente archivo
         }
         
-        logFile << "ÉXITO: Imagen guardada en " << outputFile << std::endl;
+        std::cout << "ÉXITO: Imagen guardada en " << outputFile << std::endl;
         std::cout << "✓ Imagen guardada: " << outputPath.filename().string() << std::endl;
     }
     
-    logFile << "========== FIN PROCESAMIENTO ARRASTRE ==========" << std::endl;
+    std::cout << "========== FIN PROCESAMIENTO ARRASTRE ==========" << std::endl;
     std::cout << "Procesamiento completado." << std::endl;
 }
 
 void Gui::openFileDialog() {
-    logFile << "Gui::openFileDialog() - Mostrando diálogo para abrir archivo\n";
+    std::cout << "Gui::openFileDialog() - Mostrando diálogo para abrir archivo\n";
     
     // Mostrar diálogo para abrir archivo
     char filename[MAX_PATH] = {0};
@@ -866,7 +871,7 @@ void Gui::openFileDialog() {
     ofn.lpstrDefExt = "stl";
     
     if (GetOpenFileNameA(&ofn)) {
-        logFile << "Archivo seleccionado: " << filename << "\n";
+        std::cout << "Archivo seleccionado: " << filename << "\n";
         m_currentFile = filename;
         
         // Generar nombre de archivo de salida
@@ -877,11 +882,11 @@ void Gui::openFileDialog() {
         
         // Cargar y renderizar
         if (m_app.renderSingleFile(m_currentFile, m_saveFile)) {
-            logFile << "Modelo renderizado correctamente\n";
+            std::cout << "Modelo renderizado correctamente\n";
         } else {
-            logFile << "Error al renderizar modelo\n";
+            std::cout << "Error al renderizar modelo\n";
         }
     } else {
-        logFile << "Diálogo cancelado o error al abrir\n";
+        std::cout << "Diálogo cancelado o error al abrir\n";
     }
 } 
