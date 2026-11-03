@@ -4,43 +4,11 @@
 
 #include <glad/glad.h>
 
-static void* get_proc_address(const char* name);
-
-#ifdef _WIN32
-#include <windows.h>
-static HMODULE libgl;
-
-static void* get_proc_address(const char* name) {
-    void* result = (void*)wglGetProcAddress(name);
-    if (result) return result;
-    if (libgl == NULL) {
-        libgl = LoadLibraryA("opengl32.dll");
-    }
-    return (void*)GetProcAddress(libgl, name);
-}
-#else
-#include <dlfcn.h>
-static void* libgl;
-
-static void* get_proc_address(const char* name) {
-    void* result = NULL;
-    if (libgl == NULL) {
-        libgl = dlopen("libGL.so.1", RTLD_LAZY);
-    }
-    if (libgl) {
-        result = dlsym(libgl, name);
-    }
-    return result;
-}
-#endif
-
 int gladLoadGLLoader(GLADloadproc load) {
     static int initialized = 0;
     if (initialized) return 1;
     
-    if (load == NULL) {
-        load = (GLADloadproc)get_proc_address;
-    }
+    if (load == NULL) return 0;   /* Se requiere un loader (p. ej. glfwGetProcAddress) */
     
     // Load OpenGL functions
     void* (*fp)(const char*) = load;

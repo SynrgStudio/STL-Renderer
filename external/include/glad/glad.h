@@ -2,14 +2,22 @@
 #define GLAD_H
 
 // Prevenir que Windows incluya gl.h
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef NOGDI
 #define NOGDI
+#endif
 
 #include <windows.h>
 #include <stddef.h>
 
+#ifndef APIENTRY
 #define APIENTRY __stdcall
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -161,6 +169,12 @@ typedef void (APIENTRY* PFNGLBLITFRAMEBUFFERPROC)(int srcX0, int srcY0, int srcX
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 #define GL_READ_FRAMEBUFFER 0x8CA8
 #define GL_DRAW_FRAMEBUFFER 0x8CA9
+#define GL_NO_ERROR 0
+#define GL_LESS 0x0201
+#define GL_SCISSOR_TEST 0x0C11
+#define GL_VIEWPORT 0x0BA2
+#define GL_PACK_ALIGNMENT 0x0D05
+#define GL_RGBA8 0x8058
 
 // Evitar conflictos con gl.h
 #ifndef GLAD_NO_PROTOTYPES

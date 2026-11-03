@@ -41,9 +41,7 @@ public:
     // Operaciones
     void render();
     void renderModel();
-    bool renderToFile(const std::string& filename, bool transparentBg = false);
-    bool loadModel(const std::string& filename);
-    bool saveImage(const std::string& filename, bool transparentBg = false);
+    bool renderToFile(const std::string& filename, bool transparentBg, int width, int height);
     
     // Configuración
     void setBackgroundColor(const Color& color);
@@ -87,6 +85,7 @@ private:
     unsigned int m_fbo;
     unsigned int m_colorAttachment;
     unsigned int m_depthAttachment;
+    int m_fboWidth = 0, m_fboHeight = 0;
     
     // Colores
     Color m_backgroundColor;
@@ -105,7 +104,9 @@ private:
     void updateViewMatrix();
     void createShaders();
     void setupBuffers();
-    void setupFramebuffer();
+    void setupFramebuffer(int width, int height);
+    void destroyFramebuffer();
+    bool saveImage(const std::string& filename, bool transparentBg, int width, int height);
     void destroyGLResources();
     void createDefaultCube();
-}; 
+};

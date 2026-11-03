@@ -14,6 +14,7 @@ public:
 
     // Cargar un modelo STL desde archivo y enviarlo al renderer
     bool loadModel(const std::string& filename, Renderer& renderer);
+    bool loadModel(const std::string& filename);
     
     // Obtener información del modelo cargado
     const Model& getModel() const { return m_model; }

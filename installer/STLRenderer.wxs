@@ -1,0 +1,46 @@
+<!--
+  STL Renderer installer (WiX Toolset v5). Build with installer/build-release.ps1.
+  UpgradeCode must never change: it lets new versions replace the 1.0.0 MSI and later ones.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="STL Renderer"
+           Manufacturer="SynrgStudio"
+           Version="$(Version)"
+           UpgradeCode="4D02D3C8-D97D-4F4F-9A4B-CFC6D3C51A6B"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(SourceDir)\src\assets\icons\stlrenderer.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/SynrgStudio/STL-Renderer" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="STL Renderer" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component>
+        <File Id="STLRendererEXE" Source="$(ExePath)" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="STL Renderer"
+                    WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="yes" />
+          <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="STL Renderer"
+                    WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="yes" />
+        </File>
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\LICENSE" Name="LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="STL Renderer">
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+  </Package>
+</Wix>

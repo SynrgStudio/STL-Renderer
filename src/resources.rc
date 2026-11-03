@@ -5,8 +5,8 @@ IDI_ICON1 ICON "assets/icons/stlrenderer.ico"
 
 // Información de versión
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     STL_RENDERER_VERSION_RC
+PRODUCTVERSION  STL_RENDERER_VERSION_RC
 FILEFLAGSMASK   0x3fL
 FILEFLAGS       0x0L
 FILEOS          VOS__WINDOWS32
@@ -15,20 +15,20 @@ FILESUBTYPE     0x0L
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
-        BLOCK "0C0A04B0" // Spanish (Spain)
+        BLOCK "040904B0" // English (US), Unicode
         BEGIN
-            VALUE "CompanyName", "STL Renderer"
+            VALUE "CompanyName", "SynrgStudio"
             VALUE "FileDescription", "STL to PNG Converter"
-            VALUE "FileVersion", "1.0.0.0"
+            VALUE "FileVersion", STL_RENDERER_VERSION
             VALUE "InternalName", "STLRenderer"
-            VALUE "LegalCopyright", "Copyright (C) 2023"
+            VALUE "LegalCopyright", "Copyright (C) SynrgStudio. GPL-3.0"
             VALUE "OriginalFilename", "STLRenderer.exe"
             VALUE "ProductName", "STL Renderer"
-            VALUE "ProductVersion", "1.0.0.0"
+            VALUE "ProductVersion", STL_RENDERER_VERSION
         END
     END
     BLOCK "VarFileInfo"
     BEGIN
-        VALUE "Translation", 0x0C0A, 1200
+        VALUE "Translation", 0x0409, 1200
     END
 END 

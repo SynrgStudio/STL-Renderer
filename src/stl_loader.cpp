@@ -1,299 +1,142 @@
 #include "stl_loader.h"
-#include "renderer.h"
-
-#include <fstream>
-#include <iostream>
-#include <sstream>
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 
-StlLoader::StlLoader() {
-    // Inicializar modelo vacío
-    m_model.minBounds = glm::vec3(std::numeric_limits<float>::max());
-    m_model.maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
-    m_model.center = glm::vec3(0.0f);
-    m_model.scale = 1.0f;
+namespace {
+uint32_t littleUint(const unsigned char* b) {
+    return uint32_t(b[0]) | uint32_t(b[1]) << 8 | uint32_t(b[2]) << 16 | uint32_t(b[3]) << 24;
+}
+float littleFloat(const unsigned char* bytes) {
+    auto bits = littleUint(bytes);
+    float value;
+    static_assert(sizeof(value) == sizeof(bits));
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+bool finite(const glm::vec3& v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+bool prepareTriangle(Triangle& triangle) {
+    for (const auto& v : triangle.vertices)
+        if (!finite(v.position) || !finite(v.normal)) return false;
+    glm::dvec3 normal(triangle.vertices[0].normal);
+    if (glm::length(normal) == 0.0)
+        normal = glm::cross(glm::dvec3(triangle.vertices[1].position) - glm::dvec3(triangle.vertices[0].position),
+                            glm::dvec3(triangle.vertices[2].position) - glm::dvec3(triangle.vertices[0].position));
+    const double length = glm::length(normal);
+    const glm::vec3 unit = length > 0 ? glm::vec3(normal / length) : glm::vec3(0, 1, 0);
+    for (auto& vertex : triangle.vertices) vertex.normal = unit;
+    return true;
+}
 }
 
-StlLoader::~StlLoader() {
-    // Limpiar recursos si es necesario
-    std::cout << "StlLoader destruido\n";
-}
+StlLoader::StlLoader() = default;
+StlLoader::~StlLoader() = default;
 
-bool StlLoader::loadModel(const std::string& filename, Renderer& renderer) {
-    // Limpiar modelo anterior
-    m_model.triangles.clear();
-    
-    std::cout << "Intentando cargar modelo: " << filename << std::endl;
-    
-    // Intentar abrir el archivo en modo binario
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "No se pudo abrir el archivo: " << filename << std::endl;
-        return false;
+bool StlLoader::loadModel(const std::string& filename) {
+    // Keep the current model intact if parsing or validation fails.
+    StlLoader candidate;
+    std::ifstream file(std::filesystem::u8path(filename), std::ios::binary | std::ios::ate);
+    if (!file) return false;
+    const auto size = file.tellg();
+    bool binary = false;
+    if (size >= 84) {
+        file.seekg(80);
+        std::array<unsigned char, 4> count{};
+        file.read(reinterpret_cast<char*>(count.data()), count.size());
+        binary = uint64_t(size) == 84ULL + 50ULL * littleUint(count.data());
     }
-    
-    // Verificar tamaño del archivo
-    file.seekg(0, std::ios::end);
-    std::streamsize fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
-    
-    std::cout << "Tamaño del archivo: " << fileSize << " bytes" << std::endl;
-    
-    if (fileSize < 84) { // 80 bytes header + 4 bytes triangleCount
-        std::cerr << "Archivo STL inválido: demasiado pequeño" << std::endl;
-        file.close();
-        return false;
-    }
-    
-    // Leer los primeros bytes para determinar si es ASCII o binario
-    char header[6];
-    file.read(header, 5);
-    header[5] = '\0';
     file.close();
-    
-    bool success = false;
-    
-    // Comprobar si es ASCII (comienza con "solid")
-    if (std::strncmp(header, "solid", 5) == 0) {
-        std::cout << "Detectado formato ASCII" << std::endl;
-        success = loadAsciiSTL(filename);
-    } else {
-        std::cout << "Detectado formato binario" << std::endl;
-        success = loadBinarySTL(filename);
+    if (!(binary ? candidate.loadBinarySTL(filename) : candidate.loadAsciiSTL(filename))) return false;
+    candidate.calculateModelInfo();
+    if (!finite(candidate.m_model.center) || !std::isfinite(candidate.m_model.scale) || candidate.m_model.scale <= 0)
+        return false;
+    const auto center = candidate.m_model.center;
+    for (auto& triangle : candidate.m_model.triangles) {
+        for (auto& vertex : triangle.vertices) {
+            auto p = vertex.position - center;
+            vertex.position = glm::vec3(p.x, p.z, -p.y);
+            auto n = vertex.normal;
+            vertex.normal = glm::vec3(n.x, n.z, -n.y);
+            if (!finite(vertex.position)) return false;
+        }
     }
-    
-    if (success) {
-        // Calcular información del modelo
-        calculateModelInfo();
-        
-        // NUEVO: Trasladar todos los vértices para que el centro del bounding box esté en (0,0,0)
-        std::cout << "Trasladando modelo al origen (0,0,0)..." << std::endl;
-        glm::vec3 translationVector = -m_model.center; // Negativo del centro para moverlo a (0,0,0)
-        
-        // Aplicar traslación a todos los vértices
-        for (auto& triangle : m_model.triangles) {
-            for (int i = 0; i < 3; ++i) {
-                triangle.vertices[i].position += translationVector;
-            }
-        }
-        
-        // NUEVO: Rotar el modelo para que Z sea el eje vertical (como en miniaturas de D&D)
-        std::cout << "Rotando modelo para correcta orientación Z-up..." << std::endl;
-
-        // Aplicar rotación a todos los vértices para una correcta orientación de miniaturas
-        for (auto& triangle : m_model.triangles) {
-            for (int i = 0; i < 3; ++i) {
-                // Almacenar coordenadas originales
-                float originalY = triangle.vertices[i].position.y;
-                float originalZ = triangle.vertices[i].position.z;
-                
-                // Intercambiar Y y Z con la orientación correcta para miniaturas e invertir Z
-                triangle.vertices[i].position.y = originalZ;
-                triangle.vertices[i].position.z = -originalY; // Negamos Y original para invertir Z
-                
-                // También ajustar las normales
-                originalY = triangle.vertices[i].normal.y;
-                originalZ = triangle.vertices[i].normal.z;
-                triangle.vertices[i].normal.y = originalZ;
-                triangle.vertices[i].normal.z = -originalY; // Invertimos también la normal
-            }
-        }
-        
-        // Recalcular límites y centro después de la traslación y rotación
-        m_model.minBounds = glm::vec3(std::numeric_limits<float>::max());
-        m_model.maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
-        
-        // Recalcular límites del modelo
-        for (const auto& triangle : m_model.triangles) {
-            for (int i = 0; i < 3; ++i) {
-                const glm::vec3& pos = triangle.vertices[i].position;
-                
-                // Actualizar min/max
-                m_model.minBounds = glm::min(m_model.minBounds, pos);
-                m_model.maxBounds = glm::max(m_model.maxBounds, pos);
-            }
-        }
-        
-        m_model.center = glm::vec3(0.0f, 0.0f, 0.0f); // El centro sigue en el origen
-        
-        // Registrar la traslación en el log
-        std::cout << "Modelo trasladado al origen y rotado. Nuevos límites - Min: (" 
-                << m_model.minBounds.x << ", " << m_model.minBounds.y << ", " << m_model.minBounds.z 
-                << "), Max: (" << m_model.maxBounds.x << ", " << m_model.maxBounds.y << ", " << m_model.maxBounds.z << ")\n";
-        
-        // Informar sobre el modelo cargado
-        std::cout << "Modelo cargado exitosamente. Triángulos: " << m_model.triangles.size() << std::endl;
-        std::cout << "Dimensiones: Min(" << m_model.minBounds.x << ", " << m_model.minBounds.y << ", " << m_model.minBounds.z 
-                  << "), Max(" << m_model.maxBounds.x << ", " << m_model.maxBounds.y << ", " << m_model.maxBounds.z << ")" << std::endl;
-        std::cout << "Centro: (" << m_model.center.x << ", " << m_model.center.y << ", " << m_model.center.z 
-                  << "), Escala: " << m_model.scale << std::endl;
-        
-        // Verificar que tenemos al menos un triángulo
-        if (m_model.triangles.empty()) {
-            std::cerr << "Advertencia: El modelo no contiene triángulos" << std::endl;
-            return false;
-        }
-        
-        // Verificar algunos vértices como muestra
-        if (!m_model.triangles.empty()) {
-            const auto& firstTri = m_model.triangles.front();
-            std::cout << "Primer triángulo - Vértice 1: (" 
-                    << firstTri.vertices[0].position.x << ", " 
-                    << firstTri.vertices[0].position.y << ", " 
-                    << firstTri.vertices[0].position.z << ")\n";
-            
-            // También verificar la normal
-            std::cout << "Primer triángulo - Normal: (" 
-                    << firstTri.vertices[0].normal.x << ", " 
-                    << firstTri.vertices[0].normal.y << ", " 
-                    << firstTri.vertices[0].normal.z << ")\n";
-        }
-        
-        // Enviar modelo al renderer
-        renderer.setModel(m_model);
-    } else {
-        std::cerr << "Error al cargar el modelo" << std::endl;
-    }
-    
-    return success;
+    candidate.calculateModelInfo();
+    if (!finite(candidate.m_model.center) || !std::isfinite(candidate.m_model.scale) || candidate.m_model.scale <= 0)
+        return false;
+    m_model = std::move(candidate.m_model);
+    return true;
 }
 
 bool StlLoader::loadBinarySTL(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "Error: No se pudo abrir el archivo binario: " << filename << "\n";
-        return false;
-    }
-    
-    // Saltar los 80 bytes del encabezado
+    std::ifstream file(std::filesystem::u8path(filename), std::ios::binary | std::ios::ate);
+    const auto size = file.tellg();
+    if (size < 84) return false;
     file.seekg(80);
-    
-    // Leer número de triángulos
-    uint32_t numTriangles;
-    file.read(reinterpret_cast<char*>(&numTriangles), sizeof(uint32_t));
-    
-    std::cout << "Número de triángulos en archivo binario: " << numTriangles << "\n";
-    
-    // Reservar espacio para todos los triángulos
-    m_model.triangles.reserve(numTriangles);
-    
-    // Leer cada triángulo
-    for (uint32_t i = 0; i < numTriangles; ++i) {
-        Triangle tri;
-        
-        // Leer normal
-        glm::vec3 normal;
-        file.read(reinterpret_cast<char*>(&normal.x), sizeof(float) * 3);
-        
-        // Leer los tres vértices
-        for (int j = 0; j < 3; ++j) {
-            glm::vec3 position;
-            file.read(reinterpret_cast<char*>(&position.x), sizeof(float) * 3);
-            
-            tri.vertices[j].position = position;
-            tri.vertices[j].normal = normal;
+    std::array<unsigned char, 4> countBytes{};
+    if (!file.read(reinterpret_cast<char*>(countBytes.data()), countBytes.size())) return false;
+    const uint32_t count = littleUint(countBytes.data());
+    if (!count || 84ULL + 50ULL * count != uint64_t(size)) return false;
+    m_model.triangles.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        std::array<unsigned char, 50> record{};
+        if (!file.read(reinterpret_cast<char*>(record.data()), record.size())) return false;
+        Triangle triangle{};
+        glm::vec3 normal(littleFloat(&record[0]), littleFloat(&record[4]), littleFloat(&record[8]));
+        for (int v = 0; v < 3; ++v) {
+            const auto* p = record.data() + 12 + v * 12;
+            triangle.vertices[v] = {glm::vec3(littleFloat(p), littleFloat(p + 4), littleFloat(p + 8)), normal};
         }
-        
-        // Saltar los 2 bytes de atributo
-        file.seekg(2, std::ios::cur);
-        
-        // Agregar triángulo al modelo
-        m_model.triangles.push_back(tri);
+        if (!prepareTriangle(triangle)) return false;
+        m_model.triangles.push_back(triangle);
     }
-    
-    file.close();
-    std::cout << "Carga binaria completada. Triángulos leídos: " << m_model.triangles.size() << "\n";
-    return !m_model.triangles.empty();
+    return true;
 }
 
 bool StlLoader::loadAsciiSTL(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Error: No se pudo abrir el archivo ASCII: " << filename << "\n";
-        return false;
-    }
-    
-    std::string line;
-    glm::vec3 normal;
-    int vertexIndex = 0;
-    Triangle currentTriangle;
-    
-    std::cout << "Iniciando lectura de archivo ASCII STL\n";
-    
-    // Leer línea por línea
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string keyword;
-        iss >> keyword;
-        
-        if (keyword == "facet") {
-            // Leer normal
-            iss >> keyword; // "normal"
-            iss >> normal.x >> normal.y >> normal.z;
-        } else if (keyword == "vertex") {
-            // Leer vértice
-            glm::vec3 position;
-            iss >> position.x >> position.y >> position.z;
-            
-            currentTriangle.vertices[vertexIndex].position = position;
-            currentTriangle.vertices[vertexIndex].normal = normal;
-            
-            vertexIndex++;
-            
-            // Si hemos leído los tres vértices, agregar el triángulo al modelo
-            if (vertexIndex == 3) {
-                m_model.triangles.push_back(currentTriangle);
-                vertexIndex = 0;
-            }
+    std::ifstream file(std::filesystem::u8path(filename));
+    file.imbue(std::locale::classic());
+    std::string token, rest;
+    auto expect = [&](const char* expected) { return bool(file >> token) && token == expected; };
+    if (!expect("solid")) return false;
+    std::getline(file, rest);
+    while (file >> token) {
+        if (token == "endsolid") {
+            std::getline(file, rest);
+            file >> std::ws;
+            return file.eof() && !m_model.triangles.empty();
         }
+        if (token != "facet" || !expect("normal")) return false;
+        glm::vec3 normal{};
+        if (!(file >> normal.x >> normal.y >> normal.z) || !expect("outer") || !expect("loop")) return false;
+        Triangle triangle{};
+        for (auto& vertex : triangle.vertices) {
+            if (!expect("vertex") || !(file >> vertex.position.x >> vertex.position.y >> vertex.position.z)) return false;
+            vertex.normal = normal;
+        }
+        if (!expect("endloop") || !expect("endfacet") || !prepareTriangle(triangle)) return false;
+        m_model.triangles.push_back(triangle);
     }
-    
-    file.close();
-    std::cout << "Carga ASCII completada. Triángulos leídos: " << m_model.triangles.size() << "\n";
-    return !m_model.triangles.empty();
+    return false;
 }
 
 void StlLoader::calculateModelInfo() {
-    if (m_model.triangles.empty()) {
-        std::cerr << "Error: No hay triángulos para calcular información del modelo\n";
-        return;
-    }
-    
-    // Reiniciar límites
     m_model.minBounds = glm::vec3(std::numeric_limits<float>::max());
     m_model.maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
-    
-    // Calcular límites del modelo
-    for (const auto& triangle : m_model.triangles) {
-        for (int i = 0; i < 3; ++i) {
-            const glm::vec3& pos = triangle.vertices[i].position;
-            
-            // Actualizar min/max
-            m_model.minBounds = glm::min(m_model.minBounds, pos);
-            m_model.maxBounds = glm::max(m_model.maxBounds, pos);
+    for (const auto& triangle : m_model.triangles)
+        for (const auto& vertex : triangle.vertices) {
+            m_model.minBounds = glm::min(m_model.minBounds, vertex.position);
+            m_model.maxBounds = glm::max(m_model.maxBounds, vertex.position);
         }
-    }
-    
-    // Calcular centro del modelo
-    m_model.center = (m_model.minBounds + m_model.maxBounds) * 0.5f;
-    
-    // Calcular dimensiones
-    glm::vec3 dimensions = m_model.maxBounds - m_model.minBounds;
-    std::cout << "Dimensiones del modelo: (" << dimensions.x << ", " << dimensions.y << ", " << dimensions.z << ")\n";
-    
-    // Calcular escala del modelo para normalizar su tamaño
-    float maxDimension = std::max(std::max(dimensions.x, dimensions.y), dimensions.z);
-    
-    if (maxDimension > 0.0f) {
-        // Normalizar a un rango que permita visualizarlo bien
-        // Un valor menor hará que el modelo parezca más grande
-        m_model.scale = 1.0f / maxDimension;
-    } else {
-        m_model.scale = 1.0f;
-    }
-    
-    std::cout << "Centro del modelo: (" << m_model.center.x << ", " << m_model.center.y << ", " << m_model.center.z << ")\n";
-    std::cout << "Factor de escala: " << m_model.scale << "\n";
-} 
+    const glm::dvec3 min(m_model.minBounds), max(m_model.maxBounds);
+    m_model.center = glm::vec3((min + max) * 0.5);
+    const auto dimensions = max - min;
+    const double extent = std::max({dimensions.x, dimensions.y, dimensions.z});
+    m_model.scale = extent > 0 ? static_cast<float>(1.0 / extent) : 1.0f;
+}

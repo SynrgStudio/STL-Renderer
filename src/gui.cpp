@@ -1,5 +1,3 @@
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #include <wingdi.h>
 #include <combaseapi.h>
@@ -12,6 +10,7 @@
 #include "app.h"
 #include "renderer.h"
 #include "stl_loader.h"
+#include "cli.h"
 
 // Luego OpenGL y otras bibliotecas
 #include <glad/glad.h>
@@ -56,6 +55,50 @@ namespace fs = std::filesystem;
 typedef HWND(*GLFWgetWin32WindowProc)(GLFWwindow*);
 #endif
 
+namespace {
+std::string toUtf8(const wchar_t* text) {
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string result(size_t(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, result.data(), size, nullptr, nullptr);
+    result.pop_back();
+    return result;
+}
+
+// Devuelve la ruta elegida en UTF-8, o una cadena vacía si se canceló.
+std::string fileDialog(GLFWwindow* window, bool save) {
+    wchar_t filename[32768] = {};
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = glfwGetWin32Window(window);
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = static_cast<DWORD>(std::size(filename));
+    if (save) {
+        ofn.lpstrFilter = L"PNG Images\0*.png\0";
+        ofn.lpstrDefExt = L"png";
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+        return GetSaveFileNameW(&ofn) ? toUtf8(filename) : std::string();
+    }
+    ofn.lpstrFilter = L"STL Files\0*.stl\0All Files\0*.*\0";
+    ofn.lpstrDefExt = L"stl";
+    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
+    return GetOpenFileNameW(&ofn) ? toUtf8(filename) : std::string();
+}
+
+std::string folderDialog(GLFWwindow* window) {
+    wchar_t path[MAX_PATH] = {};
+    BROWSEINFOW bi = {};
+    bi.hwndOwner = glfwGetWin32Window(window);
+    bi.lpszTitle = L"Seleccionar carpeta con archivos STL";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+    if (!pidl) return {};
+    const bool ok = SHGetPathFromIDListW(pidl, path);
+    CoTaskMemFree(pidl);
+    return ok ? toUtf8(path) : std::string();
+}
+} // namespace
+
 // Datos para compartir entre GLFW y las funciones de callback
 struct GUICallbackData {
     App* app;
@@ -66,8 +109,6 @@ static GUICallbackData g_CallbackData;
 
 Gui::Gui(App& app)
     : m_app(app)
-    , m_renderer(nullptr)
-    , m_stlLoader(nullptr)
     , m_window(nullptr)
     , m_showDemoWindow(false)
     , m_showColorPicker(true)
@@ -80,7 +121,7 @@ Gui::Gui(App& app)
     , m_processingBatch(false)
     , m_cameraYaw(0.0f)
     , m_cameraPitch(0.0f)
-    , m_cameraDistance(5.0f)
+    , m_cameraDistance(2.0f)
     , m_isMouseDragging(false)
     , m_lastMouseX(0.0f)
     , m_lastMouseY(0.0f)
@@ -95,41 +136,6 @@ Gui::Gui(App& app)
     m_modelColor[1] = 0.7f;
     m_modelColor[2] = 0.7f;
     
-    std::cout << "Gui construida con versión original\n";
-}
-
-Gui::Gui(Renderer& renderer, StlLoader& stlLoader)
-    : m_app(*reinterpret_cast<App*>(0))  // Esto es un hack para compilar, no debería usarse la m_app
-    , m_renderer(&renderer)
-    , m_stlLoader(&stlLoader)
-    , m_window(nullptr)
-    , m_showDemoWindow(false)
-    , m_showColorPicker(true)
-    , m_showCameraControls(true)
-    , m_showModelInfo(false)
-    , m_showBatchProcessing(true)
-    , m_currentFile("")
-    , m_saveFile("")
-    , m_batchDirectory("")
-    , m_processingBatch(false)
-    , m_cameraYaw(0.0f)
-    , m_cameraPitch(0.0f)
-    , m_cameraDistance(5.0f)
-    , m_isMouseDragging(false)
-    , m_lastMouseX(0.0f)
-    , m_lastMouseY(0.0f)
-    , m_isMouseInPreviewWindow(false)
-{
-    // Inicializar valores por defecto de colores
-    m_bgColor[0] = 0.0f; 
-    m_bgColor[1] = 0.0f; 
-    m_bgColor[2] = 0.0f;
-    
-    m_modelColor[0] = 0.7f;
-    m_modelColor[1] = 0.7f;
-    m_modelColor[2] = 0.7f;
-    
-    std::cout << "Gui construida con versión alternativa\n";
 }
 
 Gui::~Gui() {
@@ -144,11 +150,9 @@ bool Gui::initialize() {
     m_window = glfwGetCurrentContext();
     if (!m_window) {
         std::cerr << "Error: No hay contexto GLFW activo" << std::endl;
-        std::cout << "Gui::initialize() - Error: No hay contexto GLFW activo\n";
         return false;
     }
     
-    std::cout << "Gui::initialize() - Iniciando interfaz gráfica\n";
     
     // Configurar datos para callbacks
     g_CallbackData.app = &m_app;
@@ -182,7 +186,6 @@ bool Gui::initialize() {
     // Cargar configuración actual
     updateFromConfig();
     
-    std::cout << "Gui::initialize() - Interfaz gráfica inicializada correctamente\n";
     return true;
 }
 
@@ -330,54 +333,18 @@ bool Gui::shouldClose() const {
 void Gui::renderMainMenu() {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("Archivo")) {
-            if (ImGui::MenuItem("Abrir STL...", "Ctrl+O")) {
-                // Mostrar diálogo para abrir archivo
-                char filename[MAX_PATH] = {0};
-                OPENFILENAMEA ofn = {0};
-                ofn.lStructSize = sizeof(ofn);
-                ofn.hwndOwner = glfwGetWin32Window(m_window);
-                ofn.lpstrFilter = "STL Files\0*.stl\0All Files\0*.*\0";
-                ofn.lpstrFile = filename;
-                ofn.nMaxFile = MAX_PATH;
-                ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-                ofn.lpstrDefExt = "stl";
-                
-                if (GetOpenFileNameA(&ofn)) {
-                    m_currentFile = filename;
-                    
-                    // Generar nombre de archivo de salida
-                    fs::path outputPath = m_currentFile;
-                    outputPath.replace_extension();
-                    outputPath += "_png.png";
-                    m_saveFile = outputPath.string();
-                    
-                    // Cargar y renderizar
+            if (ImGui::MenuItem("Abrir STL...")) {
+                openFileDialog();
+            }
+
+            if (ImGui::MenuItem("Guardar imagen...", nullptr, false, !m_currentFile.empty())) {
+                const std::string file = fileDialog(m_window, true);
+                if (!file.empty()) {
+                    m_saveFile = file;
                     m_app.renderSingleFile(m_currentFile, m_saveFile);
                 }
             }
-            
-            if (ImGui::MenuItem("Guardar imagen...", "Ctrl+S")) {
-                // Mostrar diálogo para guardar imagen
-                char filename[MAX_PATH] = {0};
-                OPENFILENAMEA ofn = {0};
-                ofn.lStructSize = sizeof(ofn);
-                ofn.hwndOwner = glfwGetWin32Window(m_window);
-                ofn.lpstrFilter = "PNG Images\0*.png\0All Files\0*.*\0";
-                ofn.lpstrFile = filename;
-                ofn.nMaxFile = MAX_PATH;
-                ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
-                ofn.lpstrDefExt = "png";
-                
-                if (GetSaveFileNameA(&ofn)) {
-                    m_saveFile = filename;
-                    
-                    // Renderizar al archivo seleccionado
-                    if (!m_currentFile.empty()) {
-                        m_app.renderSingleFile(m_currentFile, m_saveFile);
-                    }
-                }
-            }
-            
+
             ImGui::Separator();
             
             if (ImGui::MenuItem("Salir", "Alt+F4")) {
@@ -401,7 +368,7 @@ void Gui::renderMainMenu() {
     
     // Ventana modal para "Acerca de"
     if (ImGui::BeginPopupModal("Acerca de STL Renderer", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("STL Renderer v1.0.0");
+        ImGui::Text("STL Renderer %s", STL_RENDERER_VERSION);
         ImGui::Separator();
         ImGui::Text("Una aplicación para convertir archivos STL a imágenes PNG.");
         ImGui::Text("Características principales:");
@@ -452,7 +419,7 @@ void Gui::renderCameraControls() {
             // Restaurar valores optimizados
             m_cameraYaw = 0.8f;
             m_cameraPitch = 0.5f;
-            m_cameraDistance = 5.0f;
+            m_cameraDistance = 2.0f;
             changed = true;
         }
         
@@ -552,8 +519,6 @@ void Gui::renderColorControls() {
         if (ImGui::Checkbox("Fondo transparente al guardar", &transparentBg)) {
             // Actualizar configuración
             m_app.getConfig().transparentBackground = transparentBg;
-            
-            std::cout << "Opción de fondo transparente cambiada a: " << (transparentBg ? "Activado" : "Desactivado") << std::endl;
         }
         
         if (ImGui::IsItemHovered()) {
@@ -568,23 +533,13 @@ void Gui::renderBatchControls() {
         ImGui::Text("Carpeta: %s", m_batchDirectory.empty() ? "<ninguna>" : m_batchDirectory.c_str());
         
         if (ImGui::Button("Seleccionar carpeta")) {
-            // Mostrar diálogo para seleccionar carpeta
-            char path[MAX_PATH] = {0};
-            BROWSEINFOA bi = {0};
-            bi.lpszTitle = "Seleccionar carpeta con archivos STL";
-            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-            
-            LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-            if (pidl != NULL) {
-                if (SHGetPathFromIDListA(pidl, path)) {
-                    m_batchDirectory = path;
-                    m_app.getConfig().batchDirectory = m_batchDirectory;
-                }
-                
-                CoTaskMemFree(pidl);
+            const std::string folder = folderDialog(m_window);
+            if (!folder.empty()) {
+                m_batchDirectory = folder;
+                m_app.getConfig().batchDirectory = m_batchDirectory;
             }
         }
-        
+
         ImGui::SameLine();
         
         // Botón para procesar todos los archivos
@@ -697,9 +652,9 @@ void Gui::renderStatusBar() {
     
     // Mostrar información en la barra de estado
     if (!m_currentFile.empty()) {
-        ImGui::Text("Modelo: %s | Salida: %s", 
-                    fs::path(m_currentFile).filename().string().c_str(),
-                    fs::path(m_saveFile).filename().string().c_str());
+        ImGui::Text("Modelo: %s | Salida: %s",
+                    fs::u8path(m_currentFile).filename().u8string().c_str(),
+                    fs::u8path(m_saveFile).filename().u8string().c_str());
     } else {
         ImGui::Text("Listo");
     }
@@ -710,183 +665,54 @@ void Gui::setupCallbacks() {
 }
 
 void Gui::updateFromConfig() {
-    // Si estamos usando la versión con App, usar la configuración de la App
-    if (m_renderer == nullptr) {
-        // Versión original con App
-        try {
-            AppConfig& config = m_app.getConfig();
-            
-            // Colores
-            m_bgColor[0] = config.backgroundColor.r;
-            m_bgColor[1] = config.backgroundColor.g;
-            m_bgColor[2] = config.backgroundColor.b;
-            
-            m_modelColor[0] = config.modelColor.r;
-            m_modelColor[1] = config.modelColor.g;
-            m_modelColor[2] = config.modelColor.b;
-            
-            // Cámara
-            m_cameraYaw = config.cameraYaw;
-            m_cameraPitch = config.cameraPitch;
-            m_cameraDistance = config.cameraDistance;
-            
-            // Batch processing
-            m_batchDirectory = config.batchDirectory;
-        } catch (...) {
-            std::cout << "Error al intentar acceder a la configuración a través de App\n";
-        }
-    } else {
-        // Versión alternativa con renderer y stlLoader directos
-        // Aquí no tenemos acceso a la configuración, así que usamos valores por defecto
-        std::cout << "Usando la versión alternativa sin acceso a AppConfig\n";
-        
-        // Valores por defecto ya establecidos en el constructor
-    }
+    const AppConfig& config = m_app.getConfig();
+    m_bgColor[0] = config.backgroundColor.r;
+    m_bgColor[1] = config.backgroundColor.g;
+    m_bgColor[2] = config.backgroundColor.b;
+    m_modelColor[0] = config.modelColor.r;
+    m_modelColor[1] = config.modelColor.g;
+    m_modelColor[2] = config.modelColor.b;
+    m_cameraYaw = config.cameraYaw;
+    m_cameraPitch = config.cameraPitch;
+    m_cameraDistance = config.cameraDistance;
+    m_batchDirectory = config.batchDirectory;
 }
 
 void Gui::applyToConfig() {
-    // Si estamos usando la versión con App, actualizar la configuración de la App
-    if (m_renderer == nullptr) {
-        // Versión original con App
-        try {
-            AppConfig& config = m_app.getConfig();
-            
-            // Colores
-            config.backgroundColor = Color(m_bgColor[0], m_bgColor[1], m_bgColor[2]);
-            config.modelColor = Color(m_modelColor[0], m_modelColor[1], m_modelColor[2]);
-            
-            // Cámara
-            config.cameraYaw = m_cameraYaw;
-            config.cameraPitch = m_cameraPitch;
-            config.cameraDistance = m_cameraDistance;
-            
-            // Batch processing
-            config.batchDirectory = m_batchDirectory;
-        } catch (...) {
-            std::cout << "Error al intentar actualizar la configuración a través de App\n";
-        }
-    } else {
-        // Versión alternativa con renderer y stlLoader directos
-        // Aplicar directamente al renderer los valores que podemos
-        std::cout << "Aplicando configuración directamente al renderer\n";
-        
-        if (m_renderer) {
-            m_renderer->setBackgroundColor(Color(m_bgColor[0], m_bgColor[1], m_bgColor[2]));
-            m_renderer->setModelColor(Color(m_modelColor[0], m_modelColor[1], m_modelColor[2]));
-            // También podríamos intentar aplicar las configuraciones de cámara si hay métodos disponibles
-        }
-    }
+    AppConfig& config = m_app.getConfig();
+    config.backgroundColor = Color(m_bgColor[0], m_bgColor[1], m_bgColor[2]);
+    config.modelColor = Color(m_modelColor[0], m_modelColor[1], m_modelColor[2]);
+    config.cameraYaw = m_cameraYaw;
+    config.cameraPitch = m_cameraPitch;
+    config.cameraDistance = m_cameraDistance;
+    config.batchDirectory = m_batchDirectory;
 }
 
-void Gui::dropCallback(GLFWwindow* window, int count, const char** paths) {
-    std::cout << "========== INICIO PROCESAMIENTO ARRASTRE ==========" << std::endl;
-    std::cout << "Archivos arrastrados: " << count << std::endl;
-    std::cout << "========== PROCESANDO " << count << " ARCHIVOS ARRASTRADOS ==========" << std::endl;
-    
-    // Procesar solo si tenemos acceso a la aplicación y hay archivos
-    if (count <= 0 || !g_CallbackData.app || !g_CallbackData.gui) {
-        std::cout << "No hay archivos para procesar o faltan referencias necesarias" << std::endl;
-        return;
+void Gui::dropCallback(GLFWwindow*, int count, const char** paths) {
+    Gui* gui = g_CallbackData.gui;
+    if (!gui || !g_CallbackData.app) return;
+    for (int i = 0; i < count; ++i) {
+        const std::string path = paths[i];
+        const fs::path filePath = fs::u8path(path);
+        std::error_code ec;
+        if (fs::is_directory(filePath, ec)) {
+            g_CallbackData.app->renderDirectory(path);
+            continue;
+        }
+        if (!isStlPath(filePath)) {
+            std::cerr << "Skipping non-STL file: " << path << '\n';
+            continue;
+        }
+        gui->m_currentFile = path;
+        gui->m_saveFile = defaultOutputPath(filePath).u8string();
+        g_CallbackData.app->renderSingleFile(gui->m_currentFile, gui->m_saveFile);
     }
-    
-    // Recorrer cada archivo arrastrado
-    for (int i = 0; i < count; i++) {
-        std::string path = paths[i];
-        fs::path filePath(path);
-        
-        std::cout << "---------- ARCHIVO " << (i+1) << "/" << count << " ----------" << std::endl;
-        std::cout << "Ruta: " << path << std::endl;
-        std::cout << "Procesando archivo " << (i+1) << "/" << count << ": " << filePath.filename().string() << std::endl;
-        
-        // Verificar si es un archivo STL
-        if (filePath.extension() != ".stl") {
-            std::cout << "ERROR: No es un archivo STL válido" << std::endl;
-            std::cerr << "✗ Archivo no soportado: " << filePath.filename().string() << ". Solo se aceptan archivos .stl" << std::endl;
-            continue; // Saltar al siguiente archivo
-        }
-        
-        // Generar nombre de archivo de salida
-        fs::path outputPath = filePath;
-        outputPath.replace_extension();
-        outputPath += "_png.png";
-        std::string outputFile = outputPath.string();
-        
-        // Actualizar la interfaz con el archivo actual
-        g_CallbackData.gui->m_currentFile = path;
-        g_CallbackData.gui->m_saveFile = outputFile;
-        
-        std::cout << "Archivo STL: " << filePath.filename().string() << std::endl;
-        std::cout << "Imagen salida: " << outputPath.filename().string() << std::endl;
-        
-        // Paso 1: Cargar el modelo actual
-        std::cout << "Cargando modelo..." << std::endl;
-        if (!g_CallbackData.app->loadModel(path)) {
-            std::cout << "ERROR: No se pudo cargar el modelo" << std::endl;
-            std::cerr << "✗ Error al cargar el modelo: " << filePath.filename().string() << std::endl;
-            continue; // Saltar al siguiente archivo
-        }
-        
-        std::cout << "Modelo cargado exitosamente" << std::endl;
-        
-        // Paso 2: Centrar la cámara para este modelo específico
-        std::cout << "Centrando cámara..." << std::endl;
-        g_CallbackData.app->getRenderer().centerCamera();
-        
-        // Paso 3: Aplicar configuración de cámara
-        float yaw = g_CallbackData.app->getConfig().cameraYaw;
-        float pitch = g_CallbackData.app->getConfig().cameraPitch;
-        float distance = g_CallbackData.app->getConfig().cameraDistance;
-        
-        std::cout << "Aplicando configuración de cámara: yaw=" << yaw << ", pitch=" << pitch << ", distance=" << distance << std::endl;
-        g_CallbackData.app->getRenderer().setCameraOrbit(yaw, pitch, distance);
-        
-        // Paso 4: Guardar la imagen
-        std::cout << "Renderizando a archivo: " << outputFile << std::endl;
-        if (!g_CallbackData.app->saveImage(outputFile)) {
-            std::cout << "ERROR: No se pudo guardar la imagen" << std::endl;
-            std::cerr << "✗ Error al guardar la imagen: " << outputPath.filename().string() << std::endl;
-            continue; // Saltar al siguiente archivo
-        }
-        
-        std::cout << "ÉXITO: Imagen guardada en " << outputFile << std::endl;
-        std::cout << "✓ Imagen guardada: " << outputPath.filename().string() << std::endl;
-    }
-    
-    std::cout << "========== FIN PROCESAMIENTO ARRASTRE ==========" << std::endl;
-    std::cout << "Procesamiento completado." << std::endl;
 }
 
 void Gui::openFileDialog() {
-    std::cout << "Gui::openFileDialog() - Mostrando diálogo para abrir archivo\n";
-    
-    // Mostrar diálogo para abrir archivo
-    char filename[MAX_PATH] = {0};
-    OPENFILENAMEA ofn = {0};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = glfwGetWin32Window(m_window);
-    ofn.lpstrFilter = "STL Files\0*.stl\0All Files\0*.*\0";
-    ofn.lpstrFile = filename;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-    ofn.lpstrDefExt = "stl";
-    
-    if (GetOpenFileNameA(&ofn)) {
-        std::cout << "Archivo seleccionado: " << filename << "\n";
-        m_currentFile = filename;
-        
-        // Generar nombre de archivo de salida
-        fs::path outputPath = m_currentFile;
-        outputPath.replace_extension();
-        outputPath += "_png.png";
-        m_saveFile = outputPath.string();
-        
-        // Cargar y renderizar
-        if (m_app.renderSingleFile(m_currentFile, m_saveFile)) {
-            std::cout << "Modelo renderizado correctamente\n";
-        } else {
-            std::cout << "Error al renderizar modelo\n";
-        }
-    } else {
-        std::cout << "Diálogo cancelado o error al abrir\n";
-    }
-} 
+    const std::string file = fileDialog(m_window, false);
+    if (file.empty()) return;
+    m_currentFile = file;
+    m_saveFile = defaultOutputPath(fs::u8path(file)).u8string();
+    m_app.renderSingleFile(m_currentFile, m_saveFile);
+}
