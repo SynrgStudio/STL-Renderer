@@ -14,8 +14,8 @@ struct Triangle {
 
 struct Model {
     std::vector<Triangle> triangles;
-    glm::vec3 minBounds;
-    glm::vec3 maxBounds;
-    glm::vec3 center;
-    float scale;
+    glm::vec3 minBounds{0.0f};
+    glm::vec3 maxBounds{0.0f};
+    glm::vec3 center{0.0f};
+    float scale = 1.0f;
 }; 

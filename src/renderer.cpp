@@ -9,16 +9,6 @@
 #include <imgui.h>
 #include <imgui_internal.h> // Para ImGuiContext
 
-// Definir GL_SCISSOR_TEST si no está disponible
-#ifndef GL_SCISSOR_TEST
-#define GL_SCISSOR_TEST 0x0C11
-#endif
-
-// Definir GL_LESS si no está disponible
-#ifndef GL_LESS
-#define GL_LESS 0x0201
-#endif
-
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -153,6 +143,7 @@ bool Renderer::initialize(int width, int height, bool headless) {
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Error al inicializar GLAD" << std::endl;
         glfwDestroyWindow(m_window);
+        m_window = nullptr;
         glfwTerminate();
         return false;
     }
@@ -188,7 +179,6 @@ bool Renderer::initializeHeadless(int width, int height) {
     m_height = height;
     m_headless = true;
     
-    std::cout << "Inicializando renderer en modo headless: " << width << "x" << height << std::endl;
     
     // Inicializar GLFW
     if (!glfwInit()) {
@@ -215,6 +205,9 @@ bool Renderer::initializeHeadless(int width, int height) {
     // Inicializar GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Error al inicializar GLAD en modo headless" << std::endl;
+        glfwDestroyWindow(m_window);
+        m_window = nullptr;
+        glfwTerminate();
         return false;
     }
     
@@ -224,13 +217,11 @@ bool Renderer::initializeHeadless(int width, int height) {
     // Crear shaders y buffers
     createShaders();
     setupBuffers();
-    setupFramebuffer();
     createDefaultCube();
     
     // Configurar matriz de proyección (Ajustar FOV y distancias)
     float aspectRatio = (float)width / (float)height;
     m_projectionMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
-    std::cout << "Matriz de proyección configurada, aspect ratio: " << aspectRatio << std::endl;
     
     // Configurar matriz de vista inicial
     m_cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
@@ -242,7 +233,7 @@ bool Renderer::initializeHeadless(int width, int height) {
     // Configuración OpenGL
     glEnable(GL_DEPTH_TEST);
     
-    std::cout << "Renderer en modo headless inicializado correctamente" << std::endl;
+    m_initialized = true;
     return true;
 }
 
@@ -269,7 +260,6 @@ void Renderer::setCameraOrbit(float yaw, float pitch, float distance) {
     m_cameraPitch = pitch;
     m_cameraDistance = distance;
     
-    std::cout << "setCameraOrbit: yaw=" << yaw << ", pitch=" << pitch << ", distance=" << distance << std::endl;
     
     // Usar los ángulos directamente (ya están en radianes)
     float yawRad = yaw;
@@ -281,7 +271,6 @@ void Renderer::setCameraOrbit(float yaw, float pitch, float distance) {
     float z = m_cameraTarget.z + distance * cos(pitchRad) * sin(yawRad);
     
     m_cameraPos = glm::vec3(x, y, z);
-    std::cout << "Posición calculada de la cámara: (" << m_cameraPos.x << ", " << m_cameraPos.y << ", " << m_cameraPos.z << ")" << std::endl;
     
     updateViewMatrix();
 }
@@ -301,14 +290,6 @@ void Renderer::centerCamera() {
         // Valores predeterminados optimizados para una mejor vista 3/4
         float yaw = 0.8f;    // ~45 grados
         float pitch = 0.5f;  // ~30 grados
-        
-        std::cout << "Cámara centrada en el origen. Dimensiones del modelo: (" 
-                 << dimensions.x << ", " << dimensions.y << ", " << dimensions.z 
-                 << "), Distancia: " << dist << std::endl;
-        
-        std::cout << "Cámara centrada. Target: (0,0,0), Dimensiones: " 
-                << dimensions.x << ", " << dimensions.y << ", " << dimensions.z
-                << ", Distancia: " << dist << std::endl;
         
         // Establecer la órbita con los nuevos valores
         setCameraOrbit(yaw, pitch, dist);
@@ -400,100 +381,27 @@ void Renderer::renderModel() {
     }
 }
 
-bool Renderer::renderToFile(const std::string& filename, bool transparentBackground) {
-    // Verificar que el framebuffer esté configurado
-    if (m_fbo == 0) {
-        setupFramebuffer();
-        if (m_fbo == 0) {
-            std::cerr << "Error: No se pudo crear el framebuffer" << std::endl;
-            return false;
-        }
+bool Renderer::renderToFile(const std::string& filename, bool transparentBackground, int width, int height) {
+    if (!m_initialized || width <= 0 || height <= 0) return false;
+    if (m_fbo == 0 || width != m_fboWidth || height != m_fboHeight) {
+        setupFramebuffer(width, height);
+        if (m_fbo == 0) return false;
     }
-    
-    // Realizar renderizado al framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    
-    // Verificar estado del framebuffer
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "ERROR: El framebuffer no está completo" << std::endl;
-        return false;
-    }
-    
-    // Establecer el viewport al tamaño del framebuffer
-    glViewport(0, 0, m_width, m_height);
-    
-    // Configurar la proyección para el renderizado
-    float aspectRatio = (float)m_width / (float)m_height;
-    m_projectionMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
-    
-    // Limpiar el buffer con el color adecuado
-    if (transparentBackground) {
-        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    } else {
-        glClearColor(m_backgroundColor.r, m_backgroundColor.g, m_backgroundColor.b, 1.0f);
-    }
-    
-    // Limpiar buffers
+    glViewport(0, 0, width, height);
+    glDisable(GL_SCISSOR_TEST);
+    const glm::mat4 previousProjection = m_projectionMatrix;
+    m_projectionMatrix = glm::perspective(glm::radians(45.0f), float(width) / float(height), 0.1f, 100.0f);
+    if (transparentBackground) glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    else glClearColor(m_backgroundColor.r, m_backgroundColor.g, m_backgroundColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
-    // Asegurarse de que el depth test esté habilitado
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
-    
-    // Activar shader
-    m_shader->use();
-    
-    // Establecer uniformes
-    m_shader->setMat4("projection", m_projectionMatrix);
-    m_shader->setMat4("view", m_viewMatrix);
-    
-    // Matriz modelo (sin transformaciones adicionales)
-    glm::mat4 model = glm::mat4(1.0f);
-    m_shader->setMat4("model", model);
-    
-    // Configuración de luz y color - usar los colores configurados
-    m_shader->setVec3("objectColor", m_modelColor.r, m_modelColor.g, m_modelColor.b);
-    m_shader->setVec3("lightColor", 1.0f, 1.0f, 1.0f); // Luz blanca brillante
-    
-    // Posicionar la luz cerca de la cámara para buena iluminación (igual que en preview)
-    glm::vec3 lightPos = m_cameraPos + glm::vec3(0.0f, 1.0f, 0.0f); // Luz justo encima de la cámara
-    m_shader->setVec3("lightPos", lightPos.x, lightPos.y, lightPos.z);
-    m_shader->setVec3("viewPos", m_cameraPos.x, m_cameraPos.y, m_cameraPos.z);
-    
-    // Renderizar el modelo
-    if (m_hasModel && !m_model.triangles.empty() && m_vao != 0) {
-        glBindVertexArray(m_vao);
-        glDrawArrays(GL_TRIANGLES, 0, m_model.triangles.size() * 3);
-        glBindVertexArray(0);
-    } else {
-        // Renderizar el cubo por defecto si no hay modelo
-        if (m_defaultCubeVAO != 0) {
-            glBindVertexArray(m_defaultCubeVAO);
-            glDrawArrays(GL_TRIANGLES, 0, 36);
-            glBindVertexArray(0);
-        } else {
-            std::cerr << "ERROR: No hay cubo por defecto disponible" << std::endl;
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            return false;
-        }
-    }
-    
-    // Verificar errores de OpenGL
-    int err = glGetError();
-    if (err != 0) {
-        std::cerr << "ERROR OpenGL: " << err << std::endl;
-    }
-    
-    // Asegurarse de que todo se haya dibujado
-    glFlush();
+    renderModel();   // Mismo sombreado que la vista previa
     glFinish();
-    
-    // Guardar a archivo
-    bool success = saveImage(filename, transparentBackground);
-    
-    // Restaurar framebuffer por defecto
+    const bool success = saveImage(filename, transparentBackground, width, height);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    
+    m_projectionMatrix = previousProjection;
     return success;
 }
 
@@ -575,31 +483,37 @@ void Renderer::setupBuffers() {
     glBindVertexArray(0);
 }
 
-void Renderer::setupFramebuffer() {
-    // Crear framebuffer
+void Renderer::destroyFramebuffer() {
+    if (m_fbo) glDeleteFramebuffers(1, &m_fbo);
+    if (m_colorAttachment) glDeleteTextures(1, &m_colorAttachment);
+    if (m_depthAttachment) glDeleteRenderbuffers(1, &m_depthAttachment);
+    m_fbo = m_colorAttachment = m_depthAttachment = 0;
+    m_fboWidth = m_fboHeight = 0;
+}
+
+void Renderer::setupFramebuffer(int width, int height) {
+    destroyFramebuffer();
     glGenFramebuffers(1, &m_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    
-    // Crear textura de color
     glGenTextures(1, &m_colorAttachment);
     glBindTexture(GL_TEXTURE_2D, m_colorAttachment);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorAttachment, 0);
-    
-    // Crear renderbuffer para profundidad
     glGenRenderbuffers(1, &m_depthAttachment);
     glBindRenderbuffer(GL_RENDERBUFFER, m_depthAttachment);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_width, m_height);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthAttachment);
-    
-    // Verificar que el framebuffer esté completo
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "Error: Framebuffer incompleto" << std::endl;
-    }
-    
+    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!complete) {
+        std::cerr << "Could not create a " << width << "x" << height << " framebuffer\n";
+        destroyFramebuffer();
+        return;
+    }
+    m_fboWidth = width;
+    m_fboHeight = height;
 }
 
 void Renderer::destroyGLResources() {
@@ -624,130 +538,26 @@ void Renderer::destroyGLResources() {
         m_defaultCubeVBO = 0;
     }
     
-    // Liberar recursos del framebuffer
-    if (m_fbo != 0) {
-        glDeleteFramebuffers(1, &m_fbo);
-        m_fbo = 0;
-    }
-    
-    if (m_colorAttachment != 0) {
-        glDeleteTextures(1, &m_colorAttachment);
-        m_colorAttachment = 0;
-    }
-    
-    if (m_depthAttachment != 0) {
-        glDeleteRenderbuffers(1, &m_depthAttachment);
-        m_depthAttachment = 0;
-    }
-    
+    destroyFramebuffer();
+
     // El shader se liberará automáticamente por el unique_ptr
     m_shader.reset();
 }
 
 void Renderer::updateViewMatrix() {
-    // Crear matriz de vista
     m_viewMatrix = glm::lookAt(m_cameraPos, m_cameraTarget, glm::vec3(0.0f, 1.0f, 0.0f));
-    
-    std::cout << "Matriz de vista actualizada. Posición: (" << m_cameraPos.x << ", " << m_cameraPos.y << ", " << m_cameraPos.z << "), Target: (" << m_cameraTarget.x << ", " << m_cameraTarget.y << ", " << m_cameraTarget.z << ")" << std::endl;
 }
 
-bool Renderer::saveImage(const std::string& filename, bool transparentBackground) {
-    // Leer píxeles del framebuffer
-    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    
-    // Formato: RGBA si es transparente, RGB si no
-    unsigned int format = transparentBackground ? GL_RGBA : GL_RGB;
-    int numChannels = transparentBackground ? 4 : 3;
-    
-    // Crear buffer para los datos de la imagen
-    std::vector<unsigned char> buffer(m_width * m_height * numChannels);
-    
-    if (buffer.size() == 0 || buffer.data() == nullptr) {
-        std::cerr << "ERROR: No se pudo asignar memoria para el buffer de imagen (" 
-                << (m_width * m_height * numChannels) << " bytes)" << std::endl;
-        return false;
-    }
-    
-    // Leer píxeles
-    glReadPixels(0, 0, m_width, m_height, format, GL_UNSIGNED_BYTE, buffer.data());
-    
-    // Verificar si hubo error en glReadPixels
-    int err = glGetError();
-    if (err != 0) {
-        std::cerr << "ERROR en glReadPixels: " << err << std::endl;
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        return false;
-    }
-    
-    // Voltear imagen (OpenGL y stb_image tienen coordenadas y invertidas)
-    for (int y = 0; y < m_height / 2; ++y) {
-        for (int x = 0; x < m_width; ++x) {
-            for (int c = 0; c < numChannels; ++c) {
-                std::swap(buffer[(y * m_width + x) * numChannels + c],
-                          buffer[((m_height - 1 - y) * m_width + x) * numChannels + c]);
-            }
-        }
-    }
-    
-    // DIAGNÓSTICO: Detectar el contenido real de la imagen de manera más detallada
-    bool allBlack = true;
-    bool allWhite = true;
-    long totalPixels = 0;
-    long blackPixels = 0;
-    long whitePixels = 0;
-    
-    // Comprobar todos los píxeles
-    for (int y = 0; y < m_height; y += 10) {  // Sampling every 10 lines for efficiency
-        for (int x = 0; x < m_width; x += 10) {  // Sampling every 10 columns
-            totalPixels++;
-            
-            // Comprobar si el píxel es negro o blanco
-            int pixelOffset = (y * m_width + x) * numChannels;
-            bool isBlack = true;
-            bool isWhite = true;
-            
-            for (int c = 0; c < std::min(3, numChannels); ++c) {
-                if (buffer[pixelOffset + c] > 10) isBlack = false;  // Tolerancia para "casi negro"
-                if (buffer[pixelOffset + c] < 240) isWhite = false; // Tolerancia para "casi blanco"
-            }
-            
-            if (isBlack) blackPixels++;
-            if (isWhite) whitePixels++;
-            
-            if (!isBlack) allBlack = false;
-            if (!isWhite) allWhite = false;
-        }
-    }
-    
-    float blackPercent = (totalPixels > 0) ? (100.0f * blackPixels / totalPixels) : 0;
-    float whitePercent = (totalPixels > 0) ? (100.0f * whitePixels / totalPixels) : 0;
-    
-    std::cout << "DIAGNÓSTICO - Análisis de imagen: " << std::endl;
-    std::cout << "  Total píxeles muestreados: " << totalPixels << std::endl;
-    std::cout << "  Píxeles negros: " << blackPixels << " (" << blackPercent << "%)" << std::endl; 
-    std::cout << "  Píxeles blancos: " << whitePixels << " (" << whitePercent << "%)" << std::endl;
-    
-    if (allBlack || blackPercent > 95.0f) {
-        std::cout << "ADVERTENCIA: La imagen es casi completamente negra! Posible problema de renderizado." << std::endl;
-    } else if (allWhite || whitePercent > 95.0f) {
-        std::cout << "ADVERTENCIA: La imagen es casi completamente blanca! Posible problema de iluminación." << std::endl;
-    }
-    
-    // Guardar imagen a archivo
-    std::cout << "Guardando imagen usando stbi_write_png..." << std::endl;
-    int result = stbi_write_png(filename.c_str(), m_width, m_height, numChannels,
-                               buffer.data(), m_width * numChannels);
-    
-    // Volver al framebuffer por defecto
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    
-    if (result == 0) {
-        std::cerr << "ERROR: stbi_write_png falló al guardar la imagen" << std::endl;
-    } else {
-        std::cout << "stbi_write_png completado correctamente, imagen guardada en: " << filename << std::endl;
-    }
-    
-    return result != 0;
+bool Renderer::saveImage(const std::string& filename, bool transparentBackground, int width, int height) {
+    const int channels = transparentBackground ? 4 : 3;
+    std::vector<unsigned char> pixels(size_t(width) * size_t(height) * size_t(channels));
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, transparentBackground ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    if (glGetError() != GL_NO_ERROR) return false;
+    // OpenGL lee de abajo hacia arriba; stb escribe de arriba hacia abajo.
+    stbi_flip_vertically_on_write(1);
+    // Con STBIW_WINDOWS_UTF8 el nombre de archivo se interpreta como UTF-8.
+    return stbi_write_png(filename.c_str(), width, height, channels, pixels.data(), width * channels) != 0;
 }
 
 void Renderer::createDefaultCube() {
@@ -823,16 +633,10 @@ void Renderer::createDefaultCube() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    std::cout << "Cubo predeterminado creado para vista previa" << std::endl;
 }
 
 void Renderer::setProjectionMatrix(float fov, float aspectRatio, float nearPlane, float farPlane) {
     // Crear una nueva matriz de proyección con los parámetros dados
     m_projectionMatrix = glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
-    
-    // Debug
-    std::cout << "Matriz de proyección recalculada con FOV: " << fov 
-              << ", AspectRatio: " << aspectRatio 
-              << ", Near: " << nearPlane 
-              << ", Far: " << farPlane << std::endl;
+
 } 

@@ -1,5 +1,8 @@
 # Build directories
 build/
+.venv/
+config.ini
+imgui.ini
 out/
 Debug/
 Release/
@@ -39,3 +42,5 @@ cmake_install.cmake
 .Trashes
 ehthumbs.db
 Thumbs.db 
+build-release/
+dist/

@@ -7,15 +7,13 @@
 
 // Forward declarations
 class App;
-class Renderer;
-class StlLoader;
 struct AppConfig;
 
 class Gui {
 public:
-    // Constructor que toma una referencia a la App o a sus componentes dependiendo de la versión
-    Gui(App& app);
-    Gui(Renderer& renderer, StlLoader& stlLoader);
+    explicit Gui(App& app);
+    Gui(const Gui&) = delete;
+    Gui& operator=(const Gui&) = delete;
     
     // Destructor
     ~Gui();
@@ -44,9 +42,6 @@ private:
     // Referencia a la aplicación
     App& m_app;
     
-    // Referencias adicionales para la versión alternativa
-    Renderer* m_renderer = nullptr;
-    StlLoader* m_stlLoader = nullptr;
     
     // Ventana GLFW
     GLFWwindow* m_window;
@@ -100,4 +95,4 @@ private:
     
     // Callback para arrastrar y soltar archivos
     static void dropCallback(GLFWwindow* window, int count, const char** paths);
-}; 
+};

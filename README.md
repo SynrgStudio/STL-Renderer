@@ -44,59 +44,63 @@ To open the graphical interface, double-click on the `STLRenderer.exe` executabl
 
 ## Command Line
 
-STL Renderer can also be used from the command line to automate tasks:
+STL Renderer can also be used from the command line to automate tasks. Without inputs it opens the GUI.
 
 ```bash
-stlrenderer [options] [stl_files]
+STLRenderer [options] [files.stl | directories]
 ```
 
-Available options:
-- `-h, --help` - Show help
-- `-v, --version` - Show version
-- `-s, --silent` - Silent mode (no GUI)
-- `-c, --color R G B` - Set model color (values between 0.0 and 1.0)
-- `-bg, --background R G B` - Set background color (values between 0.0 and 1.0)
-- `-a, --angle A` - Set camera angle in degrees
-- `-o, --output FILE` - Set output file for rendered image
+| Option | Description |
+| --- | --- |
+| `-h, --help` | Show help |
+| `-v, --version` | Show version |
+| `-s, --silent` | Render without GUI (requires at least one input) |
+| `-c, --color R G B` | Model color, components between 0.0 and 1.0 |
+| `-bg, --background R G B` | Background color, components between 0.0 and 1.0 |
+| `-a, --angle DEGREES` | Camera yaw in degrees |
+| `-o, --output FILE.png` | Output path (only with a single STL input) |
+| `--width N`, `--height N` | Image size in pixels (1–8192, default 1024×1024) |
+| `--transparent`, `--opaque` | PNG background mode |
+| `--` | Treat every following argument as an input |
+
+Each `model.stl` is rendered to `model_png.png` next to it. Directories are processed non-recursively, and `.stl`
+is matched case-insensitively. Exit codes: `0` success, `1` at least one file failed, `2` invalid arguments.
+
+```bash
+STLRenderer --width 1920 --height 1080 -c 0.9 0.4 0.1 --transparent parts/
+STLRenderer -o preview.png -a 45 bracket.stl
+```
+
+Command-line options only apply to that run. GUI settings are stored in `%APPDATA%\STLRenderer\config.ini`;
+for a portable setup, place a `config.ini` next to `STLRenderer.exe` and it will be used instead.
 
 ## System Requirements
 
-- Windows 7 or higher
+- Windows 10 or higher
 - Graphics card compatible with OpenGL 3.3+
 
 ## Building from Source
 
 ### Requirements
 
-- CMake 3.10 or higher
-- C++17 compatible compiler (MSVC, GCC, Clang)
-- OpenGL 3.3 or higher
+- Visual Studio 2022 (MSVC, C++17) or another Windows C++17 toolchain
+- CMake 3.24 or higher
+- Git and network access on first configure: GLFW, Dear ImGui, GLM and stb are fetched at pinned versions
 
 ### Steps
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/SynrgStudio/stl-renderer.git
-   cd stl-renderer
-   ```
+```bash
+git clone https://github.com/SynrgStudio/STL-Renderer.git
+cd STL-Renderer
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # or omit -G for the Visual Studio generator
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
 
-2. Create build directory:
-   ```bash
-   mkdir build
-   cd build
-   ```
+The executable is written to `build/` (or `build/Release/` with the Visual Studio generator).
 
-3. Configure with CMake:
-   ```bash
-   cmake ..
-   ```
-
-4. Build:
-   ```bash
-   cmake --build . --config Release
-   ```
-
-5. The executable will be available in the `build/Release/` folder
+The STL parser and CLI parsing are a platform-independent core library with their own tests, which can be
+built anywhere with `-DSTL_RENDERER_BUILD_APP=OFF`.
 
 ## Contributing
 
